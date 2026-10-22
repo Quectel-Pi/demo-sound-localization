@@ -127,3 +127,7 @@ The background queue accepts at most two waiting utterances. When it is full, ne
 The model and token file are stored under `models/`, and Python runtime dependencies are stored under `.venv/`. Do not treat these runtime assets as disposable cache after installation.
 
 Reference: [Sipeed MA-USB8 documentation](https://wiki.sipeed.com/hardware/en/modules/micarray_usbboard_bl616.html).
+
+## Technical support and contributions
+
+If you encounter any problems during use, please submit a technical inquiry on the [Quectel official forum](https://forums.quectel.com/c/quectel-pi/80). The Quectel technical support team will respond promptly.
