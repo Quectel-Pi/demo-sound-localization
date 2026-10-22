@@ -144,3 +144,8 @@ bash run.sh
 模型和词表位于 `models/`，Python 运行依赖位于 `.venv/`；这些文件不可当作缓存删除。
 
 参考：[Sipeed MA-USB8 官方指南](https://wiki.sipeed.com/hardware/en/modules/micarray_usbboard_bl616.html)。
+
+
+## 技术支持与贡献
+
+如在使用过程中遇到问题，欢迎在[移远官方论坛](https://forumschinese.quectel.com/c/quectel-pi/58)提交技术咨询，移远技术支持团队将及时为您解答。
