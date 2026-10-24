@@ -85,7 +85,7 @@ bash test.sh                     # 定位、人声门控、分句与离线识别
 | `device` | ALSA 设备；默认 `auto`，按 USB VID:PID 自动查找 VA60X-GL |
 | `ui_language` | 界面语言，`zh` 或 `en`；默认中文，不改变 ASR 识别语言 |
 | `usb_vid_pid` | 新固件 USB 标识，当前实测为 `0bda:4cf0` |
-| `mic_channels` | 按顺时针排列的六路原始麦克风，当前使用有效的 CH0–CH5 |
+| `mic_channels` | 依 MIC_1、MIC_2、MIC_4、MIC_5、MIC_6、MIC_8 物理顺序排列的零起始索引：`[0,4,5,1,2,3]` |
 | `mic_labels` | 与 `mic_channels` 对应的物理位号，默认 MIC_1、MIC_2、MIC_4、MIC_5、MIC_6、MIC_8 |
 | `radius_m` | 麦克风环半径；手册未给中心坐标，当前按 Ø80/Ø60 环形板中心线估算为 0.035 米 |
 | `gate_dbfs` | 基础门限，人声确认后可自动放宽 |
@@ -98,17 +98,20 @@ bash test.sh                     # 定位、人声门控、分句与离线识别
 
 ## 软件与硬件原理
 
-VA60X-GL 新固件通过 USB 提供 8 通道、16 kHz、16 位 PCM；实测 CH0–CH5 为六路有效音频，
-CH6–CH7 基本静音。定位使用 CH0–CH5 的 GCC-PHAT / SRP，每个 512 采样块约 32 ms。
+VA60X-GL 新固件通过 USB 提供 8 通道、16 kHz、16 位 PCM。设备说明中的通道 1–8
+在配置中写作零起始索引 0–7：MIC_1→0、MIC_2→4、MIC_4→5、MIC_5→1、MIC_6→2、MIC_8→3；
+索引 6（通道 7）为空，索引 7（通道 8）为回采，不参与定位。定位使用上述六路的 GCC-PHAT / SRP，
+每个 512 采样块约 32 ms；采集仍须保持 `channels: 8`。
 程序根据 `0bda:4cf0` 自动查找声卡，避免重新插拔后 ALSA 卡号变化。
 WebRTC VAD 使用原始通道按 20 ms 连续分帧检测人声，采集块尾部保留并接到下一块。
 定位结果经过圆周角度平滑，再由 Tk Canvas 绘制方向箭头。
 只估计水平面方位，不估计人与阵列的距离。
 
-手册定义的默认六麦物理顺序为 MIC_1、MIC_2、MIC_4、MIC_5、MIC_6、MIC_8，间隔 60°。
-但手册未定义 UAC 通道与 MIC 位号的映射；当前先按 CH0–CH5 对应上述顺时针顺序运行。
-正式使用前应依次轻敲各 MIC，并通过 `bash run.sh --probe --seconds 3` 检查通道电平，
-再调整 `mic_channels`、`angle_offset_deg` 或 `mirror`。通道映射未标定时，程序可以定位，但绝对角度可能错误。
+六麦物理顺序按 MIC_1、MIC_2、MIC_4、MIC_5、MIC_6、MIC_8，间隔 60° 建模；
+当前按用户提供的通道对应关系配置。算法假定这六个位号依次为顺时针，且 MIC_1 指向为 0°。
+通道映射不等于安装方向标定：应从 MIC_1 径向与相邻麦克风方向分别发声，确认 0° 参考线和角度增长方向。
+若安装中的“正前方”并非 MIC_1 所指方向，用 `angle_offset_deg` 旋转；若角度反向，用 `mirror` 翻转。
+`bash run.sh --probe --seconds 3` 可检查各通道电平，但单次整体电平统计不能独立证明每个 MIC 的位号。
 
 - `app.py`：启动、采集线程、方向跟踪。
 - `neon_ui.py`：赛博朋克界面、方向箭头、门限控件。

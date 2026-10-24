@@ -11,6 +11,13 @@ class LocalizationTests(unittest.TestCase):
             self.cfg = json.load(file)
         self.cfg.update(angle_offset_deg=0, mirror=False)
 
+    def test_va60x_physical_microphone_mapping(self):
+        self.assertEqual(self.cfg['mic_labels'], ['MIC_1', 'MIC_2', 'MIC_4', 'MIC_5', 'MIC_6', 'MIC_8'])
+        self.assertEqual(self.cfg['mic_channels'], [0, 4, 5, 1, 2, 3])
+        self.assertEqual(self.cfg['channels'], 8)
+        self.assertEqual(self.cfg['vad_channel'], 0)
+        self.assertEqual(self.cfg['asr_channel'], 0)
+
     def test_full_circle_fractional_delays(self):
         loc = Localizer(self.cfg)
         for angle in range(0, 360, 15):
@@ -32,6 +39,7 @@ class LocalizationTests(unittest.TestCase):
         pcm = synthetic(self.cfg, 80)
         original = loc.process(pcm)['angle']
         pcm[:, 6] = np.random.default_rng(10).integers(-32000, 32000, self.cfg['frame_size'])
+        pcm[:, 7] = np.random.default_rng(11).integers(-32000, 32000, self.cfg['frame_size'])
         self.assertEqual(original, loc.process(pcm)['angle'])
 
     def test_wrap_and_hold(self):
@@ -59,7 +67,7 @@ class LocalizationTests(unittest.TestCase):
         self.assertLessEqual(abs(result['angle']-310), 4)
 
     def test_reject_duplicate_microphone_channel(self):
-        self.cfg['mic_channels'] = [0, 1, 2, 3, 4, 4]
+        self.cfg['mic_channels'] = [0, 4, 5, 1, 2, 2]
         with self.assertRaises(ValueError):
             validate(self.cfg)
 
@@ -79,7 +87,7 @@ class LocalizationTests(unittest.TestCase):
             t = (np.arange(self.cfg['frame_size'])+block*self.cfg['frame_size'])/self.cfg['rate']
             noise = np.zeros((self.cfg['frame_size'], self.cfg['channels']))
             for i, delay in enumerate(delays):
-                noise[:, i] = 0.2*np.sin(2*np.pi*850*(t-delay))
+                noise[:, self.cfg['mic_channels'][i]] = 0.2*np.sin(2*np.pi*850*(t-delay))
             return (noise*32768).astype(np.int16)
         for block in range(30):
             loc.process(hum(block), learn_noise=True)

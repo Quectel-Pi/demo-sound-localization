@@ -6,11 +6,11 @@
   "channels": 8,
   "mic_channels": [
     0,
+    4,
+    5,
     1,
     2,
-    3,
-    4,
-    5
+    3
   ],
   "mic_labels": [
     "MIC_1",

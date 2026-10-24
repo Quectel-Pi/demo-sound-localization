@@ -69,7 +69,7 @@ Advanced settings are stored in `config.json` and take effect after restart.
 | --- | --- |
 | `device` | ALSA device; `auto` finds VA60X-GL by USB VID:PID |
 | `usb_vid_pid` | USB identity of the tested firmware, currently `0bda:4cf0` |
-| `mic_channels` | Six clockwise raw microphone channels; currently the active CH0–CH5 |
+| `mic_channels` | Zero-based indices for MIC_1, MIC_2, MIC_4, MIC_5, MIC_6, MIC_8 in physical order: `[0,4,5,1,2,3]` |
 | `mic_labels` | Physical positions corresponding to `mic_channels`: MIC_1, MIC_2, MIC_4, MIC_5, MIC_6, MIC_8 |
 | `radius_m` | Estimated 0.035 m microphone-ring radius; replace it when exact coordinates are available |
 | `gate_dbfs` | Base gate; may be relaxed automatically after speech is confirmed |
@@ -82,9 +82,9 @@ Advanced settings are stored in `config.json` and take effect after restart.
 
 ## Software and Hardware Principles
 
-The tested VA60X-GL firmware exposes eight-channel, 16 kHz, signed 16-bit PCM through ALSA. CH0–CH5 carry active microphone signals and CH6–CH7 are effectively silent. Localization uses CH0–CH5 with GCC-PHAT/SRP and processes 512-sample blocks, approximately 32 ms each. The application discovers the card by USB ID `0bda:4cf0` instead of relying on an unstable ALSA card number.
+The tested VA60X-GL firmware exposes eight-channel, 16 kHz, signed 16-bit PCM through ALSA. Hardware channels 1–8 correspond to zero-based software indices 0–7: MIC_1→0, MIC_2→4, MIC_4→5, MIC_5→1, MIC_6→2, MIC_8→3. Index 6 (channel 7) is empty; index 7 (channel 8) is loopback. Neither is used for localization, but capture must still request eight channels. GCC-PHAT/SRP processes 512-sample blocks, approximately 32 ms each. The application discovers the card by USB ID `0bda:4cf0` instead of relying on an unstable ALSA card number.
 
-The manual defines the clockwise physical array as MIC_1, MIC_2, MIC_4, MIC_5, MIC_6, and MIC_8 at 60-degree intervals, but does not define the UAC channel mapping. The default configuration temporarily assumes CH0–CH5 follow that order. Before relying on absolute angles, tap each microphone in turn, run `bash run.sh --probe --seconds 3`, and adjust `mic_channels`, `angle_offset_deg`, or `mirror` as needed.
+The six physical positions are modeled in MIC_1, MIC_2, MIC_4, MIC_5, MIC_6, MIC_8 order at 60-degree intervals. The channel mapping now follows the supplied board mapping. The algorithm assumes this physical order is clockwise and treats the MIC_1 radial direction as 0°. Verify that reference and the direction of increasing angles with a sound source at MIC_1 and an adjacent microphone. If the desired front direction differs, set `angle_offset_deg`; if angles run backward, set `mirror`. A `bash run.sh --probe --seconds 3` level summary alone cannot prove which physical MIC corresponds to each channel.
 
 WebRTC VAD analyzes continuous 20 ms frames from raw channels and carries incomplete frame data across capture blocks. The direction result is smoothed circularly and drawn by Tk Canvas. The application estimates horizontal direction only; it does not estimate distance.
 
