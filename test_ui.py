@@ -39,6 +39,40 @@ class InterfaceTests(unittest.TestCase):
         self.assertFalse(application.asr_recording)
         self.assertFalse(application.asr_pending)
 
+    def test_live_arrow_hides_as_soon_as_voice_or_direction_is_lost(self):
+        application = Application.__new__(Application)
+        application.cfg = {'hold_seconds': 0.55, 'vad_enabled': True}
+        application.error = None
+        application.done = False
+        application.last_result = 10.0
+        application.tracker = SimpleNamespace(last_active=10.0, pending_angle=None)
+        application.latest = {'speech': True, 'active': True, 'angle': 60}
+        self.assertTrue(application.direction_visible(10.1))
+        application.latest['speech'] = False
+        self.assertFalse(application.direction_visible(10.1))
+        application.latest['speech'] = True
+        application.latest['active'] = False
+        self.assertFalse(application.direction_visible(10.1))
+        application.latest['active'] = True
+        application.latest['angle'] = None
+        self.assertFalse(application.direction_visible(10.1))
+        application.latest['angle'] = 60
+        application.tracker.pending_angle = 200
+        self.assertFalse(application.direction_visible(10.1))
+        application.tracker.pending_angle = None
+        self.assertFalse(application.direction_visible(10.6))
+
+    def test_demo_without_vad_keeps_short_hold(self):
+        application = Application.__new__(Application)
+        application.cfg = {'hold_seconds': 0.55, 'vad_enabled': False}
+        application.error = None
+        application.done = False
+        application.last_result = 10.0
+        application.tracker = SimpleNamespace(last_active=10.0)
+        application.latest = {'speech': None, 'active': False, 'angle': 60}
+        self.assertTrue(application.direction_visible(10.1))
+        self.assertFalse(application.direction_visible(10.6))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -258,16 +258,26 @@ class Application:
             else:
                 self.latest = value
                 self.last_result = now
-                self.display_angle, self.alive = self.tracker.update(value, now)
+                self.display_angle, _ = self.tracker.update(value, now)
         if self.retry_pending and not self.worker.is_alive():
             self.start_capture()
-        if now-self.last_result > self.cfg['hold_seconds'] or self.error or self.done:
-            self.alive = False
-        else:
-            self.alive = now-self.tracker.last_active < self.cfg['hold_seconds']
+        self.alive = self.direction_visible(now)
         self.draw(now)
         self.poll_asr()
         self.root.after(33, self.tick)
+
+    def direction_visible(self, now):
+        # Keep Tracker's angle smoothing, but do not keep its old arrow on screen
+        # after the latest VAD result says speech has ended.
+        freshness = max(0.2, self.cfg['hold_seconds'])
+        if self.error or self.done or now-self.last_result > freshness:
+            return False
+        if self.cfg.get('vad_enabled', False):
+            return (self.latest.get('speech') is True and self.latest.get('active') is True
+                    and self.latest.get('angle') is not None
+                    and self.tracker.pending_angle is None)
+        # Synthetic demo and explicit --no-vad retain their existing behaviour.
+        return now-self.tracker.last_active < self.cfg['hold_seconds']
 
     def clear_transcripts(self):
         self.transcripts.clear()

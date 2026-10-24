@@ -27,7 +27,7 @@ bash run.sh
 
 Replace `/path/to` with the actual parent directory of the project on the board.
 
-The default runtime uses WebRTC VAD voting across three spaced raw microphones. At least two channels must report speech before voice is confirmed. Playback speech can also trigger VAD, and music or noise may still cause false positives. The last valid direction is held for approximately 0.55 seconds after speech ends.
+The default runtime uses WebRTC VAD voting across three spaced raw microphones. At least two channels must report speech before voice is confirmed. Playback speech can also trigger VAD, and music or noise may still cause false positives. In live VAD mode, the arrow and angle are hidden as soon as the latest result no longer confirms both speech and a valid direction; the old angle remains only inside the tracker for smoothing. VAD itself takes a short time to confirm speech has ended. Demo and explicit `--no-vad` modes retain the previous short display hold.
 
 Speech recognition uses the SenseVoice INT8 model stored locally on Quectel PI M2 and detects the language of each segment automatically. Set `asr_language` to `zh` or `en` to select a fixed language, then restart the application.
 
@@ -78,7 +78,7 @@ Advanced settings are stored in `config.json` and take effect after restart.
 | `vad_channel` | Raw channel used as the starting VAD channel; defaults to CH0 |
 | `angle_offset_deg` | Global rotation applied to displayed directions |
 | `mirror` | Mirrors displayed directions |
-| `hold_seconds` | Time to hold the direction after speech ends |
+| `hold_seconds` | Internal direction-tracker hold and stale-result limit; live VAD mode does not display the old arrow for this duration |
 
 ## Software and Hardware Principles
 
