@@ -21,16 +21,17 @@ class LocalizationTests(unittest.TestCase):
 
     def test_silence_and_uncorrelated_noise(self):
         loc = Localizer(self.cfg)
-        self.assertFalse(loc.process(np.zeros((2048, 8), dtype=np.int16))['active'])
+        shape = (self.cfg['frame_size'], self.cfg['channels'])
+        self.assertFalse(loc.process(np.zeros(shape, dtype=np.int16))['active'])
         rng = np.random.default_rng(56)
-        noise = (rng.normal(size=(2048, 8))*2000).astype(np.int16)
+        noise = (rng.normal(size=shape)*2000).astype(np.int16)
         self.assertFalse(loc.process(noise)['active'])
 
-    def test_beamformed_channel_does_not_change_direction(self):
+    def test_unused_channel_does_not_change_direction(self):
         loc = Localizer(self.cfg)
         pcm = synthetic(self.cfg, 80)
         original = loc.process(pcm)['angle']
-        pcm[:, 6] = np.random.default_rng(10).integers(-32000, 32000, 2048)
+        pcm[:, 6] = np.random.default_rng(10).integers(-32000, 32000, self.cfg['frame_size'])
         self.assertEqual(original, loc.process(pcm)['angle'])
 
     def test_wrap_and_hold(self):
@@ -57,8 +58,8 @@ class LocalizationTests(unittest.TestCase):
         result = Localizer(self.cfg).process(synthetic(self.cfg, 90))
         self.assertLessEqual(abs(result['angle']-310), 4)
 
-    def test_reject_beamformed_channel(self):
-        self.cfg['mic_channels'] = [0, 1, 2, 3, 4, 6]
+    def test_reject_duplicate_microphone_channel(self):
+        self.cfg['mic_channels'] = [0, 1, 2, 3, 4, 4]
         with self.assertRaises(ValueError):
             validate(self.cfg)
 
@@ -75,8 +76,8 @@ class LocalizationTests(unittest.TestCase):
         u = np.array([np.sin(np.deg2rad(240)), np.cos(np.deg2rad(240))])
         delays = -loc.positions@u/343
         def hum(block):
-            t = (np.arange(self.cfg['frame_size'])+block*self.cfg['frame_size'])/48000
-            noise = np.zeros((self.cfg['frame_size'], 8))
+            t = (np.arange(self.cfg['frame_size'])+block*self.cfg['frame_size'])/self.cfg['rate']
+            noise = np.zeros((self.cfg['frame_size'], self.cfg['channels']))
             for i, delay in enumerate(delays):
                 noise[:, i] = 0.2*np.sin(2*np.pi*850*(t-delay))
             return (noise*32768).astype(np.int16)

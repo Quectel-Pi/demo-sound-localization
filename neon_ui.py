@@ -35,6 +35,10 @@ class NeonButton(tk.Canvas):
         self.focus_set()
         self.command()
 
+    def set_text(self, text):
+        self.text = text
+        self.paint()
+
     def paint(self):
         self.delete('all')
         w, h = self.winfo_width()-2, self.winfo_height()-2
@@ -87,6 +91,7 @@ class CyberpunkView:
         self.root = owner.root
         self.radar_size = None
         self.notice_until = 0
+        self.static = []
         self.root.configure(bg=COLORS['bg'])
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(1, weight=3)
@@ -94,10 +99,15 @@ class CyberpunkView:
 
         header = tk.Frame(self.root, bg=COLORS['bg'])
         header.grid(row=0, column=0, sticky='ew', padx=24, pady=(20, 16))
-        tk.Label(header, text='SOUND DIRECTION', bg=COLORS['bg'], fg=COLORS['cyan'], font=('sans', 27, 'bold')).pack(side='left')
-        mode = 'DEMO / SYNTHETIC AUDIO' if owner.args.demo else ('REPLAY / WAV' if owner.args.wav else 'LIVE / MIC ARRAY')
-        tk.Label(header, text='●  '+mode, bg='#102431', fg=COLORS['cyan'],
-                 font=('sans', 10), padx=14, pady=10).pack(side='right')
+        self.text_label(header, 'title', 27, COLORS['cyan'], bold=True).pack(side='left')
+        mode = 'demo' if owner.args.demo else ('replay' if owner.args.wav else 'live')
+        self.mode_label = tk.Label(header, text='●  '+owner.tr(mode), bg='#102431', fg=COLORS['cyan'],
+                                   font=('sans', 10), padx=14, pady=10)
+        self.mode_label.pack(side='right')
+        self.static.append((self.mode_label, mode, '●  '))
+        self.text_button(header, 'language', owner.set_language, width=82).pack(side='right', padx=(0, 10))
+        if not (owner.args.demo or owner.args.wav):
+            self.text_button(header, 'retry', owner.retry_device, width=138).pack(side='right', padx=(0, 10))
 
         body = tk.Frame(self.root, bg=COLORS['bg'])
         body.grid(row=1, column=0, sticky='nsew', padx=24)
@@ -106,10 +116,10 @@ class CyberpunkView:
         body.rowconfigure(0, weight=1)
         radar = self.panel(body)
         radar.grid(row=0, column=0, sticky='nsew', padx=(0, 16))
-        self.label(radar, '01 / VOICE DIRECTION', 11, COLORS['text'], bold=True).pack(anchor='w', padx=18, pady=(16, 0))
+        self.text_label(radar, 'direction', 11, COLORS['text'], bold=True).pack(anchor='w', padx=18, pady=(16, 0))
         owner.canvas = tk.Canvas(radar, bg=COLORS['panel'], bd=0, highlightthickness=0, height=340)
         owner.canvas.pack(fill='both', expand=True, padx=8, pady=8)
-        self.label(radar, 'MIC0 = 0°  /  CLOCKWISE', 10).pack(pady=(0, 14))
+        self.text_label(radar, 'orientation', 10).pack(pady=(0, 14))
 
         sidebar = tk.Frame(body, bg=COLORS['bg'])
         sidebar.grid(row=0, column=1, sticky='nsew')
@@ -117,32 +127,32 @@ class CyberpunkView:
         sidebar.rowconfigure(0, weight=1)
         status = self.panel(sidebar)
         status.grid(row=0, column=0, sticky='nsew', pady=(0, 14))
-        self.label(status, '02 / SIGNAL STATUS', 11, COLORS['text'], bold=True).pack(anchor='w', padx=18, pady=(16, 3))
-        self.lock_label = self.label(status, 'Awaiting speech', 11, COLORS['muted'])
+        self.text_label(status, 'signal', 11, COLORS['text'], bold=True).pack(anchor='w', padx=18, pady=(16, 3))
+        self.lock_label = self.label(status, owner.tr('waiting'), 11, COLORS['muted'])
         self.lock_label.pack(anchor='w', padx=18, pady=(4, 0))
         self.angle_label = self.label(status, '—', 49, COLORS['cyan'], bold=True, mono=True)
         self.angle_label.pack(anchor='w', padx=16)
         metrics = tk.Frame(status, bg=COLORS['panel'])
         metrics.pack(fill='x', padx=18, pady=(0, 9))
-        self.voice_label = self.label(metrics, 'Awaiting speech', 10, COLORS['pink'])
+        self.voice_label = self.label(metrics, owner.tr('waiting'), 10, COLORS['pink'])
         self.voice_label.pack(side='left')
-        self.confidence_label = self.label(metrics, 'Consistency —', 10)
+        self.confidence_label = self.label(metrics, owner.tr('consistency', value=0), 10)
         self.confidence_label.pack(side='right')
         level_row = tk.Frame(status, bg=COLORS['panel'])
         level_row.pack(fill='x', padx=18)
-        self.label(level_row, 'Input level', 10).pack(side='left')
+        self.text_label(level_row, 'input_level', 10).pack(side='left')
         self.level_label = self.label(level_row, '— dBFS', 12, COLORS['text'], mono=True)
         self.level_label.pack(side='right')
         self.meter = tk.Canvas(status, bg=COLORS['panel'], height=28, highlightthickness=0)
         self.meter.pack(fill='x', padx=18, pady=(5, 0))
-        self.gate_hint = self.label(status, 'Base gate (pink) / Adaptive voice gate', 9)
+        self.gate_hint = self.label(status, owner.tr('gate_hint'), 9)
         self.gate_hint.pack(anchor='w', padx=18, pady=(0, 12))
 
         gate = self.panel(sidebar)
         gate.grid(row=1, column=0, sticky='ew')
         gate_title = tk.Frame(gate, bg=COLORS['panel'])
         gate_title.pack(fill='x', padx=18, pady=(14, 3))
-        self.label(gate_title, '03 / BASE GATE', 11, COLORS['text'], bold=True).pack(side='left')
+        self.text_label(gate_title, 'base_gate', 11, COLORS['text'], bold=True).pack(side='left')
         self.gate_label = self.label(gate_title, f'{owner.gate.get():.0f} dBFS', 12, COLORS['pink'], mono=True)
         self.gate_label.pack(side='right')
         adjust = tk.Frame(gate, bg=COLORS['panel'])
@@ -153,7 +163,7 @@ class CyberpunkView:
         NeonButton(adjust, '+', lambda: self.adjust_gate(1), width=34, accent='pink').grid(row=0, column=2)
         gate_bottom = tk.Frame(gate, bg=COLORS['panel'])
         gate_bottom.pack(fill='x', padx=18, pady=(3, 12))
-        NeonButton(gate_bottom, 'Save', owner.save, width=82, accent='pink').pack(side='right')
+        self.text_button(gate_bottom, 'save', owner.save, width=82, accent='pink').pack(side='right')
 
         transcript = self.panel(self.root)
         transcript.grid(row=2, column=0, sticky='nsew', padx=24, pady=(16, 0))
@@ -161,10 +171,10 @@ class CyberpunkView:
         transcript.rowconfigure(2, weight=1)
         title = tk.Frame(transcript, bg=COLORS['panel'])
         title.grid(row=0, column=0, sticky='ew', padx=18, pady=(12, 3))
-        self.label(title, '04 / TRANSCRIPT + DIRECTION', 11, COLORS['text'], bold=True).pack(side='left')
-        NeonButton(title, 'Clear', owner.clear_transcripts, width=64, accent='pink').pack(side='right')
-        NeonButton(title, 'Copy text', owner.copy_transcripts, width=88).pack(side='right', padx=8)
-        owner.asr_label = self.label(transcript, owner.asr_message, 10, COLORS['cyan'])
+        self.text_label(title, 'transcript', 11, COLORS['text'], bold=True).pack(side='left')
+        self.text_button(title, 'clear', owner.clear_transcripts, width=64, accent='pink').pack(side='right')
+        self.text_button(title, 'copy', owner.copy_transcripts, width=92).pack(side='right', padx=8)
+        owner.asr_label = self.label(transcript, owner.tr(owner.asr_message_key), 10, COLORS['cyan'])
         owner.asr_label.grid(row=1, column=0, sticky='ew', padx=18, pady=(0, 6))
         owner.asr_label.configure(anchor='w', justify='left')
         transcript.bind('<Configure>', lambda event: owner.asr_label.configure(wraplength=max(200, event.width-40)))
@@ -180,15 +190,15 @@ class CyberpunkView:
         scroll.pack(side='right', fill='y')
         owner.transcript_text.configure(yscrollcommand=scroll.set)
         owner.transcript_text.pack(fill='both', expand=True)
-        owner.transcript_text.insert('end', 'Waiting for speech…')
+        owner.transcript_text.insert('end', owner.tr('waiting_transcript'))
         owner.transcript_text.configure(state='disabled')
 
         footer = tk.Frame(self.root, bg=COLORS['bg'])
         footer.grid(row=3, column=0, sticky='ew', padx=24, pady=(10, 14))
-        owner.footer = self.label(footer, 'Connecting to audio device…', 10)
+        owner.footer = self.label(footer, owner.tr('connecting'), 10)
         owner.footer.pack(side='left', fill='x', expand=True)
         owner.footer.configure(anchor='w')
-        self.label(footer, 'LOCAL / AUDIO STAYS OFFLINE', 9, COLORS['cyan'], mono=True).pack(side='right')
+        self.text_label(footer, 'offline', 9, COLORS['cyan'], mono=True).pack(side='right')
 
     def panel(self, parent):
         return tk.Frame(parent, bg=COLORS['panel'], highlightthickness=1, highlightbackground=COLORS['border'])
@@ -196,6 +206,25 @@ class CyberpunkView:
     def label(self, parent, text, size=10, color=None, bold=False, mono=False):
         return tk.Label(parent, text=text, bg=parent.cget('bg'), fg=color or COLORS['muted'],
                         font=('DejaVu Sans Mono' if mono else 'sans', size, 'bold' if bold else 'normal'))
+
+    def text_label(self, parent, key, size=10, color=None, bold=False, mono=False):
+        widget = self.label(parent, self.owner.tr(key), size, color, bold, mono)
+        self.static.append((widget, key, ''))
+        return widget
+
+    def text_button(self, parent, key, command, **options):
+        widget = NeonButton(parent, self.owner.tr(key), command, **options)
+        self.static.append((widget, key, ''))
+        return widget
+
+    def set_language(self):
+        for widget, key, prefix in self.static:
+            value = prefix+self.owner.tr(key)
+            if isinstance(widget, NeonButton):
+                widget.set_text(value)
+            else:
+                widget.configure(text=value)
+        self.render()
 
     def adjust_gate(self, step):
         self.owner.gate.set(max(-65, min(-20, self.owner.gate.get()+step)))
@@ -253,24 +282,24 @@ class CyberpunkView:
         else:
             c.create_line(cx-12, cy, cx+12, cy, fill='#315064', width=2, tags='dynamic')
             c.create_line(cx, cy-12, cx, cy+12, fill='#315064', width=2, tags='dynamic')
-            c.create_text(cx, cy+40, text='Awaiting source', fill=COLORS['muted'], font=('sans', 12), tags='dynamic')
-        status, color = ('Tracking direction', COLORS['cyan']) if owner.alive else ('Awaiting speech', COLORS['muted'])
+            c.create_text(cx, cy+40, text=owner.tr('source'), fill=COLORS['muted'], font=('sans', 12), tags='dynamic')
+        status, color = (owner.tr('tracking'), COLORS['cyan']) if owner.alive else (owner.tr('waiting'), COLORS['muted'])
         if owner.error:
-            status, color = 'Device connection failed', COLORS['error']
+            status, color = owner.tr('device_failed'), COLORS['error']
         elif owner.done:
-            status, color = 'Playback ended', COLORS['amber']
+            status, color = owner.tr('playback_ended'), COLORS['amber']
         self.lock_label.configure(text='●  '+status, fg=color)
         self.angle_label.configure(text=f'{owner.display_angle:03.0f}°' if owner.alive else '—', fg=color)
         speech = owner.latest.get('speech')
-        self.voice_label.configure(text='Speech detected' if speech else ('Awaiting speech' if speech is not None else 'Speech filter off'),
+        self.voice_label.configure(text=owner.tr('speech') if speech else (owner.tr('waiting') if speech is not None else owner.tr('filter_off')),
                                    fg=COLORS['pink'] if speech else COLORS['muted'])
-        self.confidence_label.configure(text=f'Consistency {owner.latest["confidence"]:.0%}')
+        self.confidence_label.configure(text=owner.tr('consistency', value=owner.latest['confidence']))
         db = owner.latest['dbfs']
         self.level_label.configure(text=f'{db:.1f} dBFS')
         threshold = owner.gate.get()
         self.gate_label.configure(text=f'{threshold:.0f} dBFS')
         effective = owner.latest.get('effective_gate_dbfs', threshold)
-        self.gate_hint.configure(text=f'Base (pink) / Voice gate {effective:.0f} dBFS')
+        self.gate_hint.configure(text=owner.tr('voice_gate', value=effective))
         meter = self.meter
         meter.delete('all')
         width = max(1, meter.winfo_width())
@@ -283,10 +312,10 @@ class CyberpunkView:
         meter.create_line(mark, 2, mark, 23, fill=COLORS['pink'], width=2)
         if time.monotonic() >= self.notice_until:
             if owner.error:
-                text, color = 'Capture error: '+owner.error, COLORS['error']
+                text, color = owner.tr('capture_error', error=owner.error), COLORS['error']
             elif owner.done:
-                text, color = 'Playback complete / Finishing recognition', COLORS['muted']
+                text, color = owner.tr('playback_complete'), COLORS['muted']
             else:
-                prefix = 'Demo audio / ' if owner.args.demo else ''
-                text, color = prefix+'Speak toward the array / Direction follows speech', COLORS['muted']
+                prefix = owner.tr('demo_audio') if owner.args.demo else ''
+                text, color = prefix+owner.tr('speak'), COLORS['muted']
             owner.footer.configure(text=text, fg=color)

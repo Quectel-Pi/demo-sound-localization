@@ -11,6 +11,8 @@ class RealModelTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.fixture = Path(DEFAULT_MODEL)/'test_wavs/zh.wav'
+        if not cls.fixture.is_file():
+            cls.fixture = Path('../sound_loca_demo')/DEFAULT_MODEL/'test_wavs/zh.wav'
         if not cls.fixture.is_file() or importlib.util.find_spec('sherpa_onnx') is None:
             raise unittest.SkipTest('optional SenseVoice model/dependency not installed')
         with open('config.json') as file:

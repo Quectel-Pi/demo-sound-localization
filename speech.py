@@ -1,4 +1,4 @@
-"""Offline WebRTC VAD gating, preserving all samples across 2048-frame blocks."""
+"""Offline WebRTC VAD gating, preserving samples across arbitrary capture blocks."""
 import numpy as np
 from localization import Localizer
 

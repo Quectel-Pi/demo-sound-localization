@@ -1,0 +1,58 @@
+"""Small, explicit UI catalogue; audio and recognition are language-independent."""
+
+STRINGS = {
+    'zh': {
+        'title': '声向定位', 'demo': '演示 / 合成音频', 'replay': '回放 / WAV',
+        'live': '实时 / 麦克风阵列', 'retry': '重新检测设备', 'language': 'English',
+        'direction': '01 / 声源方向', 'orientation': 'MIC_1 = 0° / 顺时针',
+        'signal': '02 / 信号状态', 'waiting': '等待语音', 'source': '等待声源',
+        'tracking': '正在跟踪方向', 'device_failed': '设备连接失败',
+        'playback_ended': '回放结束', 'speech': '检测到语音', 'filter_off': '语音筛选已关闭',
+        'consistency': '一致性 {value:.0%}', 'input_level': '输入电平',
+        'gate_hint': '基础门限（粉色）/ 自适应语音门限',
+        'voice_gate': '基础门限（粉色）/ 语音门限 {value:.0f} dBFS',
+        'base_gate': '03 / 基础门限', 'save': '保存',
+        'transcript': '04 / 转写与方向', 'clear': '清空', 'copy': '复制文字',
+        'waiting_transcript': '等待语音…', 'connecting': '正在连接音频设备…',
+        'offline': '本地处理 / 音频不上传', 'capture_error': '采集错误：{error}',
+        'playback_complete': '回放完成 / 正在结束识别',
+        'speak': '请朝阵列说话 / 方向随语音更新', 'demo_audio': '演示音频 / ',
+        'saved': '设置已保存。', 'save_failed': '保存失败：{error}',
+        'asr_demo': '演示模式不转写', 'asr_disabled': '转写已关闭',
+        'asr_loading': '正在加载离线语音模型…', 'asr_ready': '就绪，请开始说话。',
+        'asr_busy': '识别繁忙，跳过一段语音', 'asr_result': '已转写 / {seconds:.2f} 秒',
+        'asr_empty': '未识别到文字，请清晰说话。', 'asr_error': '识别错误：{error}',
+        'listening': '正在聆听…', 'transcribing': '正在转写…',
+        'direction_unknown': '方向未知', 'direction_value': '方向 {angle:03d}°',
+        'retrying': '正在重新检测并连接设备…', 'retry_unavailable': '演示或 WAV 回放模式不使用实时设备。',
+    },
+    'en': {
+        'title': 'Sound Direction', 'demo': 'DEMO / SYNTHETIC AUDIO', 'replay': 'REPLAY / WAV',
+        'live': 'LIVE / MIC ARRAY', 'retry': 'Detect device again', 'language': '中文',
+        'direction': '01 / VOICE DIRECTION', 'orientation': 'MIC_1 = 0° / CLOCKWISE',
+        'signal': '02 / SIGNAL STATUS', 'waiting': 'Awaiting speech', 'source': 'Awaiting source',
+        'tracking': 'Tracking direction', 'device_failed': 'Device connection failed',
+        'playback_ended': 'Playback ended', 'speech': 'Speech detected', 'filter_off': 'Speech filter off',
+        'consistency': 'Consistency {value:.0%}', 'input_level': 'Input level',
+        'gate_hint': 'Base gate (pink) / Adaptive voice gate',
+        'voice_gate': 'Base (pink) / Voice gate {value:.0f} dBFS',
+        'base_gate': '03 / BASE GATE', 'save': 'Save',
+        'transcript': '04 / TRANSCRIPT + DIRECTION', 'clear': 'Clear', 'copy': 'Copy text',
+        'waiting_transcript': 'Waiting for speech…', 'connecting': 'Connecting to audio device…',
+        'offline': 'LOCAL / AUDIO STAYS OFFLINE', 'capture_error': 'Capture error: {error}',
+        'playback_complete': 'Playback complete / Finishing recognition',
+        'speak': 'Speak toward the array / Direction follows speech', 'demo_audio': 'Demo audio / ',
+        'saved': 'Settings saved.', 'save_failed': 'Save failed: {error}',
+        'asr_demo': 'Transcription disabled in demo mode', 'asr_disabled': 'Transcription disabled',
+        'asr_loading': 'Loading offline speech model…', 'asr_ready': 'Ready. Speak to begin.',
+        'asr_busy': 'Recognition busy; one segment skipped', 'asr_result': 'Transcribed / {seconds:.2f} s',
+        'asr_empty': 'No text detected. Please speak clearly.', 'asr_error': 'Recognition error: {error}',
+        'listening': 'Listening…', 'transcribing': 'Transcribing…',
+        'direction_unknown': 'Direction unknown', 'direction_value': 'Direction {angle:03d}°',
+        'retrying': 'Detecting and reconnecting device…', 'retry_unavailable': 'Demo and WAV replay do not use a live device.',
+    },
+}
+
+
+def translate(language, key, **values):
+    return STRINGS[language][key].format(**values)

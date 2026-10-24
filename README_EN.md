@@ -2,9 +2,11 @@
 
 # Sound Direction / Voice Direction and Speech Transcription
 
-This project is a voice-direction and offline speech-transcription application for **Quectel PI M2**, the Sipeed 6+1 microphone array, and the MA-USB8 board.
+This project is a voice-direction and offline speech-transcription application for **Quectel PI M2** and the **Quectel VA60X-GL** six-microphone array board.
 
-The interface uses English labels. Recognition language defaults to `auto`: Chinese speech produces Chinese text, while English speech produces English text. A typical result is `[Direction 060°] Hello`; when direction evidence is insufficient, the result uses `[Direction unknown]`.
+The interface starts in Chinese. Use the **English** button in the header to switch to English; **Save** persists the interface language and gate threshold. Recognition language defaults to `auto`: Chinese speech produces Chinese text, while English speech produces English text. The interface language does not translate recognized text. A typical English-interface result is `[Direction 060°] Hello`; when direction evidence is insufficient, it uses `[Direction unknown]`.
+
+In live mode, **Detect device again** stops capture and reopens the VA60X-GL by USB VID:PID after a reconnect or ALSA card-number change. Existing transcripts are kept. The control is hidden in demo and WAV replay modes; it cannot repair a physical USB disconnect.
 
 The cyberpunk-style interface shows a direction radar on the left, angle, speech state, level, and gate information on the right, and offline transcripts at the bottom. A cyan arrow points toward the source only when voice detection, adaptive speech-band level, and direction consistency all pass. The radar displays an idle reticle when no valid source is present.
 
@@ -19,7 +21,7 @@ By default, a transcript direction requires at least 120 ms of valid evidence, c
 From a terminal in the Quectel PI M2 graphical desktop, enter the project directory and run:
 
 ```bash
-cd /path/to/sound_loca_demo
+cd /path/to/demo-sound-localization
 bash run.sh
 ```
 
@@ -35,10 +37,15 @@ Additional commands:
 
 ```bash
 bash run.sh --probe --seconds 5   # Headless live-capture diagnostics
-bash run.sh --wav recording.wav  # Replay 8-channel, 48 kHz, 16-bit PCM WAV
+bash run.sh --no-vad --no-asr    # Live direction UI without optional VAD/ASR dependencies
+bash run.sh --wav recording.wav  # Replay 8-channel, 16 kHz, 16-bit PCM WAV
 bash run.sh --demo               # Clearly labeled synthetic direction demo; VAD is disabled
 bash test.sh                     # Localization, VAD, segmentation, and offline ASR tests
 ```
+
+On this x86_64 desktop, `./run.sh` uses this project's environment first, then reuses local dependencies and the offline model from the adjacent `sound_loca_demo` directory when available.
+It announces if WebRTC VAD or SenseVoice is still unavailable and disables the affected feature.
+If `0bda:4cf0` is not found, check the board's USB connection and `cat /proc/asound/cards`.
 
 ## Adjust the Gate
 
@@ -60,9 +67,11 @@ Advanced settings are stored in `config.json` and take effect after restart.
 
 | Key | Purpose |
 | --- | --- |
-| `device` | ALSA device; defaults to `hw:MicArray,0` |
-| `mic_channels` | Six clockwise raw microphone channels; defaults to CH0–CH5 |
-| `radius_m` | Outer microphone radius; currently 0.04 m |
+| `device` | ALSA device; `auto` finds VA60X-GL by USB VID:PID |
+| `usb_vid_pid` | USB identity of the tested firmware, currently `0bda:4cf0` |
+| `mic_channels` | Six clockwise raw microphone channels; currently the active CH0–CH5 |
+| `mic_labels` | Physical positions corresponding to `mic_channels`: MIC_1, MIC_2, MIC_4, MIC_5, MIC_6, MIC_8 |
+| `radius_m` | Estimated 0.035 m microphone-ring radius; replace it when exact coordinates are available |
 | `gate_dbfs` | Base gate; may be relaxed automatically after speech is confirmed |
 | `min_confidence` | Direction-consistency threshold; defaults to 0.2 and is a heuristic score, not an accuracy probability |
 | `vad_mode` | Voice-filter aggressiveness from 0 to 3; defaults to 2, with higher values being stricter |
@@ -73,7 +82,9 @@ Advanced settings are stored in `config.json` and take effect after restart.
 
 ## Software and Hardware Principles
 
-Quectel PI M2 captures eight-channel USB audio through ALSA and `arecord`. Localization uses CH0–CH5 with GCC-PHAT/SRP and processes blocks of 2048 samples, approximately 42.7 ms each. CH6 is the board-provided beamformed output and is not treated as an independent microphone for localization.
+The tested VA60X-GL firmware exposes eight-channel, 16 kHz, signed 16-bit PCM through ALSA. CH0–CH5 carry active microphone signals and CH6–CH7 are effectively silent. Localization uses CH0–CH5 with GCC-PHAT/SRP and processes 512-sample blocks, approximately 32 ms each. The application discovers the card by USB ID `0bda:4cf0` instead of relying on an unstable ALSA card number.
+
+The manual defines the clockwise physical array as MIC_1, MIC_2, MIC_4, MIC_5, MIC_6, and MIC_8 at 60-degree intervals, but does not define the UAC channel mapping. The default configuration temporarily assumes CH0–CH5 follow that order. Before relying on absolute angles, tap each microphone in turn, run `bash run.sh --probe --seconds 3`, and adjust `mic_channels`, `angle_offset_deg`, or `mirror` as needed.
 
 WebRTC VAD analyzes continuous 20 ms frames from raw channels and carries incomplete frame data across capture blocks. The direction result is smoothed circularly and drawn by Tk Canvas. The application estimates horizontal direction only; it does not estimate distance.
 
@@ -126,4 +137,4 @@ The background queue accepts at most two waiting utterances. When it is full, ne
 
 The model and token file are stored under `models/`, and Python runtime dependencies are stored under `.venv/`. Do not treat these runtime assets as disposable cache after installation.
 
-Reference: [Sipeed MA-USB8 documentation](https://wiki.sipeed.com/hardware/en/modules/micarray_usbboard_bl616.html).
+Hardware basis: Quectel VA60X-GL User Manual V1.0.0 Preliminary (2026-03-06) and the tested firmware's USB descriptors.

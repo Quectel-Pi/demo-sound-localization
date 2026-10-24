@@ -14,8 +14,8 @@ DEFAULT_MODEL = 'models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17'
 
 
 def validate_asr(cfg):
-    if cfg.get('asr_channel', 0) not in range(8):
-        raise ValueError('asr_channel must be in 0..7')
+    if cfg.get('asr_channel', 0) not in range(cfg['channels']):
+        raise ValueError(f'asr_channel must be in 0..{cfg["channels"]-1}')
     if cfg.get('asr_threads', 2) not in range(1, 9):
         raise ValueError('asr_threads must be in 1..8')
     pre = cfg.get('asr_pre_roll_seconds', 0.3)
@@ -172,6 +172,10 @@ class SenseVoiceRecognizer:
         folder = Path(cfg.get('asr_model_dir', DEFAULT_MODEL))
         if not folder.is_absolute():
             folder = ROOT/folder
+            if not folder.is_dir():
+                legacy = ROOT.parent/'sound_loca_demo'/cfg.get('asr_model_dir', DEFAULT_MODEL)
+                if legacy.is_dir():
+                    folder = legacy
         model, tokens = folder/'model.int8.onnx', folder/'tokens.txt'
         if not model.is_file() or not tokens.is_file():
             raise RuntimeError('Speech model missing. Run python3 setup_asr.py')

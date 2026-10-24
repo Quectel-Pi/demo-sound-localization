@@ -2,10 +2,13 @@
 
 # 声向 · Sound Direction / 人声方向与语音转写
 
-当前界面的标题、按钮、状态和方向标签均为英文。识别语言采用 `auto`：中文语音输出中文，英文语音输出英文。
-文字示例：`[Direction 060°] 你好`；未知方向显示 `[Direction unknown]`。
+界面默认中文，可用顶部“English”按钮即时切换为英文；点击“保存”会将界面语言与门限写入配置。
+识别语言采用 `auto`：中文语音输出中文，英文语音输出英文。界面语言只改变标签，不翻译识别结果。
+文字示例：`[方向 060°] 你好`；未知方向显示 `[方向未知]`。
 
-基于 Quectel PI M2、Sipeed 6+1 阵列和 MA-USB8 驱动板的人声方向应用。
+实时模式顶部有“重新检测设备”按钮。USB 设备断开、重新插入或声卡号变化后，点击它会先停止旧采集，再按 `usb_vid_pid` 重新查找并打开声卡；转写历史保留。演示和 WAV 回放模式不显示此按钮。若仍提示采集错误，请检查 USB 连接及 `cat /proc/asound/cards`；重检无法修复物理断连。
+
+基于 Quectel PI M2 和 Quectel VA60X-GL 六麦阵列板的人声方向应用。
 赛博朋克界面左侧为方向雷达，右侧显示角度、人声状态、电平和门限，下方显示离线语音转写。
 人声检测、自适应语音电平和方向一致性同时通过时，青色箭头指向声源；安静时显示待机准星。
 
@@ -20,14 +23,14 @@ Quectel PI M2 版本默认同时提供人声指向与语音转文字，保持精
 证据不足或方向相互冲突时显示 `[Direction unknown]`，文字仍正常输出。
 这些门限可分别通过 `asr_direction_min_seconds`、`asr_direction_min_coverage`、
 `asr_direction_min_consistency` 在配置中调整，修改后重启生效。
-门限可拖动粉色滑块或点击 − / + 调整，每次 1 dB；“保存门限”将门限值写入配置。
+门限可拖动粉色滑块或点击 − / + 调整，每次 1 dB；“保存”将门限值和界面语言写入配置。
 
 ## 启动
 
 在 Quectel PI M2 图形桌面的终端中进入项目目录并执行：
 
 ```bash
-cd /path/to/sound_loca_demo
+cd /path/to/demo-sound-localization
 bash run.sh
 ```
 
@@ -42,10 +45,16 @@ bash run.sh
 
 ```bash
 bash run.sh --probe --seconds 5   # 无界面真实采集诊断
-bash run.sh --wav recording.wav  # 回放 8 通道、48 kHz、16 位 PCM WAV
+bash run.sh --no-vad --no-asr    # 仅运行实时方向界面，不加载可选的人声/转写依赖
+bash run.sh --wav recording.wav  # 回放 8 通道、16 kHz、16 位 PCM WAV
 bash run.sh --demo               # 明确标记的合成方向演示；合成信号不做人声筛选
 bash test.sh                     # 定位、人声门控、分句与离线识别测试
 ```
+
+在当前 x86_64 桌面上，`./run.sh` 会优先使用本项目环境；若尚未安装，
+则复用相邻 `sound_loca_demo` 目录中的本地依赖和离线模型。
+如果 WebRTC VAD 或 SenseVoice 仍不可用，启动时会明确提示并暂时关闭相应功能。
+若提示找不到 `0bda:4cf0`，先检查阵列板 USB 连接以及 `cat /proc/asound/cards`。
 
 ## 调节门限
 
@@ -53,7 +62,7 @@ bash test.sh                     # 定位、人声门控、分句与离线识别
 将门限设在大部分环境声音之上、正常说话电平之下。
 例如安静时 -45 dBFS、说话时 -32 dBFS，可先试 -39 至 -37 dBFS。
 负值越小（例如 -40），越容易触发；越接近零（例如 -30），越不容易触发。
-电平条上的粉色标线表示当前门限，点击“保存门限”后重启仍使用该值。
+电平条上的粉色标线表示当前门限，点击“保存”后重启仍使用该值。
 该值现在是**基础门限**：确认人声后，根据语音频段的环境噪声自动放宽，
 不会仅因为人声低于基础门限就停止方向计算。界面同时显示实际使用的人声门限。
 文字方向不再依赖箭头是否通过显示门限，较轻的词也可提供方向证据。
@@ -73,9 +82,12 @@ bash test.sh                     # 定位、人声门控、分句与离线识别
 
 | 参数 | 作用 |
 | --- | --- |
-| `device` | ALSA 设备，默认 `hw:MicArray,0` |
-| `mic_channels` | 按顺时针排列的六路原始麦克风，默认 CH0–CH5 |
-| `radius_m` | 外圈麦克风半径，当前 0.04 米 |
+| `device` | ALSA 设备；默认 `auto`，按 USB VID:PID 自动查找 VA60X-GL |
+| `ui_language` | 界面语言，`zh` 或 `en`；默认中文，不改变 ASR 识别语言 |
+| `usb_vid_pid` | 新固件 USB 标识，当前实测为 `0bda:4cf0` |
+| `mic_channels` | 按顺时针排列的六路原始麦克风，当前使用有效的 CH0–CH5 |
+| `mic_labels` | 与 `mic_channels` 对应的物理位号，默认 MIC_1、MIC_2、MIC_4、MIC_5、MIC_6、MIC_8 |
+| `radius_m` | 麦克风环半径；手册未给中心坐标，当前按 Ø80/Ø60 环形板中心线估算为 0.035 米 |
 | `gate_dbfs` | 基础门限，人声确认后可自动放宽 |
 | `min_confidence` | 方向一致性门限，默认 0.2；启发式评分，不是正确率 |
 | `vad_mode` | 人声筛选强度 0–3，默认 2；越大越严格 |
@@ -86,11 +98,17 @@ bash test.sh                     # 定位、人声门控、分句与离线识别
 
 ## 软件与硬件原理
 
-USB 八通道音频通过 Quectel PI M2 上的 ALSA 和 `arecord` 采集；定位使用 CH0–CH5 的 GCC-PHAT / SRP，
-每个 2048 采样块约 42.7 ms。CH6 是官方波束成形输出，不作为独立麦克风定位。
+VA60X-GL 新固件通过 USB 提供 8 通道、16 kHz、16 位 PCM；实测 CH0–CH5 为六路有效音频，
+CH6–CH7 基本静音。定位使用 CH0–CH5 的 GCC-PHAT / SRP，每个 512 采样块约 32 ms。
+程序根据 `0bda:4cf0` 自动查找声卡，避免重新插拔后 ALSA 卡号变化。
 WebRTC VAD 使用原始通道按 20 ms 连续分帧检测人声，采集块尾部保留并接到下一块。
 定位结果经过圆周角度平滑，再由 Tk Canvas 绘制方向箭头。
 只估计水平面方位，不估计人与阵列的距离。
+
+手册定义的默认六麦物理顺序为 MIC_1、MIC_2、MIC_4、MIC_5、MIC_6、MIC_8，间隔 60°。
+但手册未定义 UAC 通道与 MIC 位号的映射；当前先按 CH0–CH5 对应上述顺时针顺序运行。
+正式使用前应依次轻敲各 MIC，并通过 `bash run.sh --probe --seconds 3` 检查通道电平，
+再调整 `mic_channels`、`angle_offset_deg` 或 `mirror`。通道映射未标定时，程序可以定位，但绝对角度可能错误。
 
 - `app.py`：启动、采集线程、方向跟踪。
 - `neon_ui.py`：赛博朋克界面、方向箭头、门限控件。
@@ -143,4 +161,4 @@ bash run.sh
 后台最多等待两段语音，繁忙时跳过新片段而不阻塞采集。正常运行不将录音或识别文字写入磁盘。
 模型和词表位于 `models/`，Python 运行依赖位于 `.venv/`；这些文件不可当作缓存删除。
 
-参考：[Sipeed MA-USB8 官方指南](https://wiki.sipeed.com/hardware/en/modules/micarray_usbboard_bl616.html)。
+硬件依据：Quectel VA60X-GL 用户手册 V1.0.0 Preliminary（2026-03-06）及当前固件实测 USB 描述符。

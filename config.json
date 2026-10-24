@@ -1,6 +1,8 @@
 {
-  "device": "hw:MicArray,0",
-  "rate": 48000,
+  "device": "auto",
+  "ui_language": "zh",
+  "usb_vid_pid": "0bda:4cf0",
+  "rate": 16000,
   "channels": 8,
   "mic_channels": [
     0,
@@ -10,8 +12,16 @@
     4,
     5
   ],
-  "radius_m": 0.04,
-  "frame_size": 2048,
+  "mic_labels": [
+    "MIC_1",
+    "MIC_2",
+    "MIC_4",
+    "MIC_5",
+    "MIC_6",
+    "MIC_8"
+  ],
+  "radius_m": 0.035,
+  "frame_size": 512,
   "gate_dbfs": -35.0,
   "min_confidence": 0.2,
   "angle_offset_deg": 0.0,

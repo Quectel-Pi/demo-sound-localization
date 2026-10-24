@@ -1,19 +1,17 @@
-"""Six-microphone SRP GCC-PHAT; angles clockwise from MIC0 (top).
-
-CH6 is deliberately excluded: MA-USB8 overwrites it with beamformed audio.
-"""
+"""Six-microphone SRP GCC-PHAT for a clockwise, evenly spaced ring."""
 import itertools
 import numpy as np
 
 
 def validate(cfg):
-    if cfg['rate'] != 48000 or cfg['channels'] != 8:
-        raise ValueError('MA-USB8 requires 48000 Hz / 8 channels')
+    if cfg['rate'] not in (16000, 32000, 48000) or cfg['channels'] < 6:
+        raise ValueError('Localization requires 16/32/48 kHz audio with at least 6 channels')
     indices = cfg['mic_channels']
-    if len(indices) != 6 or len(set(indices)) != 6 or any(i not in range(8) for i in indices):
-        raise ValueError('mic_channels must contain six distinct channel indices in 0..7')
-    if 6 in indices:
-        raise ValueError('CH6 is beamformed audio and cannot be used as a raw localization channel')
+    if len(indices) != 6 or len(set(indices)) != 6 or any(i not in range(cfg['channels']) for i in indices):
+        raise ValueError(f'mic_channels must contain six distinct channel indices in 0..{cfg["channels"]-1}')
+    labels = cfg.get('mic_labels')
+    if labels is not None and len(labels) != 6:
+        raise ValueError('mic_labels must contain six physical microphone labels')
     if not 0.01 <= cfg['radius_m'] <= 0.15:
         raise ValueError('radius_m must be in 0.01..0.15 meters')
     n = cfg['frame_size']
