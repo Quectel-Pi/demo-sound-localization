@@ -14,6 +14,9 @@ DEFAULT_MODEL = 'models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17'
 
 
 def validate_asr(cfg):
+    sector = cfg.get('direction_sector_deg', 30)
+    if not isinstance(sector, int) or isinstance(sector, bool) or sector < 10 or 360 % sector or sector % 2:
+        raise ValueError('direction_sector_deg must be an even divisor of 360, at least 10 degrees')
     if cfg.get('asr_channel', 0) not in range(cfg['channels']):
         raise ValueError(f'asr_channel must be in 0..{cfg["channels"]-1}')
     if cfg.get('asr_threads', 2) not in range(1, 9):
@@ -51,6 +54,14 @@ class Utterance:
 def format_transcript(text, direction_deg):
     label = 'Direction unknown' if direction_deg is None else f'Direction {round(direction_deg) % 360:03d}°'
     return f'[{label}] {text}'
+
+
+def direction_sector(angle, width=30):
+    """Nearest fixed-width direction sector, represented by its center and half-width."""
+    if angle is None:
+        return None
+    center = int(math.floor((angle % 360 + width/2) / width) * width) % 360
+    return center, width//2
 
 
 class UtteranceSegmenter:

@@ -3,7 +3,7 @@ import threading
 import time
 import unittest
 import numpy as np
-from asr import AsrService, Utterance, UtteranceSegmenter, validate_asr, format_transcript
+from asr import AsrService, Utterance, UtteranceSegmenter, direction_sector, validate_asr, format_transcript
 
 
 class SegmenterTests(unittest.TestCase):
@@ -65,6 +65,14 @@ class SegmenterTests(unittest.TestCase):
 
     def test_invalid_segment_parameters(self):
         self.cfg['asr_silence_seconds'] = -1
+        with self.assertRaises(ValueError):
+            validate_asr(self.cfg)
+
+    def test_direction_sector_rounding_and_wraparound(self):
+        self.assertEqual(direction_sector(68, 30), (60, 15))
+        self.assertEqual(direction_sector(352, 30), (0, 15))
+        self.assertIsNone(direction_sector(None, 30))
+        self.cfg['direction_sector_deg'] = 17
         with self.assertRaises(ValueError):
             validate_asr(self.cfg)
 

@@ -81,7 +81,7 @@ class SpeechTests(unittest.TestCase):
         self.assertTrue(result['speech'])
         self.assertEqual(result['speech_ratio'], 1.0)
 
-    def test_quiet_speech_survives_high_manual_gate(self):
+    def test_quiet_speech_can_transcribe_but_has_no_sentence_direction(self):
         self.cfg.update(vad_enabled=False, gate_dbfs=-20)
         pipeline = Pipeline(self.cfg)
         self.cfg['vad_enabled'] = True
@@ -90,8 +90,18 @@ class SpeechTests(unittest.TestCase):
         result = pipeline.process(synthetic(self.cfg, 60, amplitude=0.01))
         self.assertLess(result['dbfs'], self.cfg['gate_dbfs'])
         self.assertTrue(result['active'])
-        self.assertTrue(result['sentence_direction_valid'])
+        self.assertFalse(result['sentence_direction_valid'])
         self.assertLess(abs(result['angle']-60), 4)
+
+    def test_speech_above_base_gate_can_supply_sentence_direction(self):
+        self.cfg.update(vad_enabled=False, gate_dbfs=-45)
+        pipeline = Pipeline(self.cfg)
+        self.cfg['vad_enabled'] = True
+        pipeline.detector = SpeechDetector(self.cfg, FakeVAD([True]*10))
+        pipeline.process(synthetic(self.cfg, 60))
+        result = pipeline.process(synthetic(self.cfg, 60))
+        self.assertGreaterEqual(result['dbfs'], self.cfg['gate_dbfs'])
+        self.assertTrue(result['sentence_direction_valid'])
 
     def test_non_speech_does_not_get_human_gate_bypass(self):
         self.cfg.update(vad_enabled=False, gate_dbfs=-20)

@@ -1,5 +1,6 @@
 """Language and reconnect state checks that do not require a desktop display."""
 import threading
+import queue
 from types import SimpleNamespace
 import unittest
 
@@ -15,9 +16,58 @@ class InterfaceTests(unittest.TestCase):
         application = Application.__new__(Application)
         application.transcripts = [('你好', 59.6), ('hello', None)]
         application.language = 'zh'
-        self.assertEqual(application.transcript_lines(), ['[方向 060°] 你好', '[方向未知] hello'])
+        application.cfg = {'direction_sector_deg': 30}
+        self.assertEqual(application.transcript_lines(), ['[方向约 060° ±15°] 你好', '[方向未知] hello'])
         application.language = 'en'
-        self.assertEqual(application.transcript_lines(), ['[Direction 060°] 你好', '[Direction unknown] hello'])
+        self.assertEqual(application.transcript_lines(), ['[Direction ~060° ±15°] 你好', '[Direction unknown] hello'])
+
+    def test_completed_sentence_locks_pointer_to_transcript_sector(self):
+        application = Application.__new__(Application)
+        application.language = 'zh'
+        application.cfg = {'direction_sector_deg': 30}
+        application.sentence_mode = True
+        application.transcripts = []
+        application.asr_pending = set()
+        application.asr_error = None
+        application.asr_recording = False
+        application.asr_message_key = 'asr_ready'
+        application.asr_result_seconds = 0.0
+        application.asr_label = SimpleNamespace(configure=lambda **kwargs: None)
+        application.render_transcripts = lambda: None
+        event = {'kind': 'result', 'sequence': 1, 'text': '你好', 'direction_deg': 68,
+                 'direction_consistency': 0.8, 'recognition_seconds': 0.4}
+        application.asr_service = SimpleNamespace(poll=lambda: [event])
+        application.poll_asr()
+        self.assertEqual(application.sentence_direction, 60)
+        self.assertEqual(application.display_angle, 60)
+        self.assertEqual(application.transcript_lines(), ['[方向约 060° ±15°] 你好'])
+        self.assertEqual(application.sentence_consistency, 0.8)
+        event['sequence'] = 2
+        event['direction_deg'] = None
+        application.poll_asr()
+        self.assertIsNone(application.sentence_direction)
+
+    def test_live_capture_cannot_move_a_locked_sentence_pointer(self):
+        application = Application.__new__(Application)
+        application.cfg = {'gate_dbfs': -35, 'hold_seconds': 0.55}
+        application.gate = SimpleNamespace(get=lambda: -35)
+        application.tk = SimpleNamespace(TclError=Exception)
+        application.queue = queue.Queue()
+        application.queue.put({'_run_id': 1, 'active': True, 'angle': 220, 'speech': True})
+        application.run_id = 1
+        application.tracker = SimpleNamespace(update=lambda value, now: (220, True))
+        application.retry_pending = False
+        application.sentence_mode = True
+        application.sentence_direction = 60
+        application.display_angle = 60
+        application.error = None
+        application.done = False
+        application.poll_asr = lambda: None
+        application.draw = lambda now: None
+        application.root = SimpleNamespace(after=lambda delay, callback: None)
+        application.tick()
+        self.assertEqual(application.display_angle, 60)
+        self.assertTrue(application.alive)
 
     def test_retry_requests_old_worker_stop_before_reopening(self):
         application = Application.__new__(Application)

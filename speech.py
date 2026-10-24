@@ -81,6 +81,7 @@ class Pipeline:
         snr_ok = result['snr_db'] is None or result['snr_db'] >= 0
         # Sentence metadata has its own validity and never depends on the display gate.
         result['sentence_direction_valid'] = bool(voice['speech'] and audible and snr_ok
+                                                  and result['dbfs'] >= self.cfg['gate_dbfs']
                                                   and result['direction_valid'])
         if enabled:
             result['active'] = bool(voice['speech'] and result['direction_valid'] and audible

@@ -38,5 +38,9 @@
   "asr_pre_roll_seconds": 0.3,
   "asr_silence_seconds": 0.8,
   "asr_min_speech_seconds": 0.24,
-  "asr_max_seconds": 15.0
+  "asr_max_seconds": 15.0,
+  "asr_direction_min_seconds": 0.25,
+  "asr_direction_min_coverage": 0.3,
+  "asr_direction_min_consistency": 0.7,
+  "direction_sector_deg": 30
 }

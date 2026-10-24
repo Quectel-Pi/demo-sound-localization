@@ -130,7 +130,7 @@ class CyberpunkView:
         self.text_label(status, 'signal', 11, COLORS['text'], bold=True).pack(anchor='w', padx=18, pady=(16, 3))
         self.lock_label = self.label(status, owner.tr('waiting'), 11, COLORS['muted'])
         self.lock_label.pack(anchor='w', padx=18, pady=(4, 0))
-        self.angle_label = self.label(status, '—', 49, COLORS['cyan'], bold=True, mono=True)
+        self.angle_label = self.label(status, '—', 31 if owner.sentence_mode else 49, COLORS['cyan'], bold=True, mono=True)
         self.angle_label.pack(anchor='w', padx=16)
         metrics = tk.Frame(status, bg=COLORS['panel'])
         metrics.pack(fill='x', padx=18, pady=(0, 9))
@@ -271,6 +271,12 @@ class CyberpunkView:
         cx, cy, radius = self.radar_geometry
         if owner.alive:
             a = math.radians(owner.display_angle)
+            if owner.sentence_mode:
+                spread = owner.direction_half_width
+                reach = radius*0.86
+                c.create_arc(cx-reach, cy-reach, cx+reach, cy+reach,
+                             start=90-owner.display_angle-spread, extent=2*spread,
+                             style='pieslice', fill='#123A47', outline='#2BAFC0', width=1, tags='dynamic')
             u, v = (math.sin(a), -math.cos(a)), (math.cos(a), math.sin(a))
             def point(forward, sideways=0):
                 return cx+radius*(forward*u[0]+sideways*v[0]), cy+radius*(forward*u[1]+sideways*v[1])
@@ -283,17 +289,22 @@ class CyberpunkView:
             c.create_line(cx-12, cy, cx+12, cy, fill='#315064', width=2, tags='dynamic')
             c.create_line(cx, cy-12, cx, cy+12, fill='#315064', width=2, tags='dynamic')
             c.create_text(cx, cy+40, text=owner.tr('source'), fill=COLORS['muted'], font=('sans', 12), tags='dynamic')
-        status, color = (owner.tr('tracking'), COLORS['cyan']) if owner.alive else (owner.tr('waiting'), COLORS['muted'])
+        status_key = 'sentence_locked' if owner.sentence_mode else 'tracking'
+        status, color = (owner.tr(status_key), COLORS['cyan']) if owner.alive else (owner.tr('waiting'), COLORS['muted'])
         if owner.error:
             status, color = owner.tr('device_failed'), COLORS['error']
         elif owner.done:
             status, color = owner.tr('playback_ended'), COLORS['amber']
         self.lock_label.configure(text='●  '+status, fg=color)
-        self.angle_label.configure(text=f'{owner.display_angle:03.0f}°' if owner.alive else '—', fg=color)
+        angle_text = (owner.tr('angle_range', angle=round(owner.display_angle) % 360,
+                               half=owner.direction_half_width) if owner.sentence_mode else
+                      f'{owner.display_angle:03.0f}°') if owner.alive else '—'
+        self.angle_label.configure(text=angle_text, fg=color)
         speech = owner.latest.get('speech')
         self.voice_label.configure(text=owner.tr('speech') if speech else (owner.tr('waiting') if speech is not None else owner.tr('filter_off')),
                                    fg=COLORS['pink'] if speech else COLORS['muted'])
-        self.confidence_label.configure(text=owner.tr('consistency', value=owner.latest['confidence']))
+        consistency = owner.sentence_consistency if owner.sentence_mode and owner.alive else owner.latest['confidence']
+        self.confidence_label.configure(text=owner.tr('consistency', value=consistency))
         db = owner.latest['dbfs']
         self.level_label.configure(text=f'{db:.1f} dBFS')
         threshold = owner.gate.get()

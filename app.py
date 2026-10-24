@@ -16,7 +16,7 @@ except ImportError:
 from audio import Capture
 from localization import Tracker, validate
 from speech import Pipeline
-from asr import AsrService, UtteranceSegmenter, validate_asr
+from asr import AsrService, UtteranceSegmenter, direction_sector, validate_asr
 from i18n import translate
 
 
@@ -90,6 +90,8 @@ class Application:
         cfg = self.cfg
         cfg.update(vad_enabled=not (args.demo or args.no_vad),
                    asr_enabled=not (args.demo or args.no_asr))
+        self.sentence_mode = bool(cfg['vad_enabled'] and cfg['asr_enabled'])
+        self.direction_half_width = cfg.get('direction_sector_deg', 30)//2
         self.root = tk.Tk()
         self.language = cfg.get('ui_language', 'zh')
         self.root.title(self.tr('title'))
@@ -108,6 +110,8 @@ class Application:
         self.done = False
         self.last_result = -1e9
         self.display_angle = 0.0
+        self.sentence_direction = None
+        self.sentence_consistency = 0.0
         self.alive = False
         self.gate = tk.DoubleVar(value=cfg['gate_dbfs'])
         self.asr_service = None
@@ -148,6 +152,8 @@ class Application:
         self.asr_recording = False
         self.last_result = -1e9
         self.alive = False
+        self.sentence_direction = None
+        self.sentence_consistency = 0.0
         self.tracker = Tracker(self.cfg['hold_seconds'])
         self.latest = {'dbfs': -90, 'confidence': 0, 'active': False, 'angle': None, 'rms': [0]*6}
         if self.asr_service:
@@ -165,6 +171,7 @@ class Application:
         self.stop.set()
         self.error = None
         self.done = False
+        self.sentence_direction = None
         self.asr_recording = False
         self.asr_pending.clear()
         if self.asr_service:
@@ -258,12 +265,14 @@ class Application:
             else:
                 self.latest = value
                 self.last_result = now
-                self.display_angle, _ = self.tracker.update(value, now)
+                tracked_angle, _ = self.tracker.update(value, now)
+                if not self.sentence_mode:
+                    self.display_angle = tracked_angle
         if self.retry_pending and not self.worker.is_alive():
             self.start_capture()
-        self.alive = self.direction_visible(now)
-        self.draw(now)
         self.poll_asr()
+        self.alive = (self.sentence_direction is not None and not self.error) if self.sentence_mode else self.direction_visible(now)
+        self.draw(now)
         self.root.after(33, self.tick)
 
     def direction_visible(self, now):
@@ -281,6 +290,8 @@ class Application:
 
     def clear_transcripts(self):
         self.transcripts.clear()
+        self.sentence_direction = None
+        self.alive = False
         self.render_transcripts()
 
     def copy_transcripts(self):
@@ -289,8 +300,12 @@ class Application:
             self.root.clipboard_append('\n'.join(self.transcript_lines()))
 
     def transcript_lines(self):
-        return [f'[{self.tr("direction_unknown") if direction is None else self.tr("direction_value", angle=round(direction) % 360)}] {text}'
-                for text, direction in self.transcripts]
+        lines = []
+        for text, direction in self.transcripts:
+            sector = direction_sector(direction, self.cfg.get('direction_sector_deg', 30))
+            label = self.tr('direction_unknown') if sector is None else self.tr('direction_range', angle=sector[0], half=sector[1])
+            lines.append(f'[{label}] {text}')
+        return lines
 
     def render_transcripts(self):
         widget = self.transcript_text
@@ -314,12 +329,22 @@ class Application:
                         self.transcripts.append((event['text'], event.get('direction_deg')))
                         self.transcripts = self.transcripts[-20:]
                         self.render_transcripts()
+                        if self.sentence_mode:
+                            sector = direction_sector(event.get('direction_deg'), self.cfg.get('direction_sector_deg', 30))
+                            self.sentence_direction = None if sector is None else sector[0]
+                            if sector is not None:
+                                self.display_angle = sector[0]
+                            self.sentence_consistency = event.get('direction_consistency', 0.0)
                         self.asr_message_key = 'asr_result'
                         self.asr_result_seconds = event['recognition_seconds']
                     else:
+                        if self.sentence_mode:
+                            self.sentence_direction = None
                         self.asr_message_key = 'asr_empty'
                 elif kind == 'error':
                     self.asr_error = event['message']
+                    if self.sentence_mode:
+                        self.sentence_direction = None
                     if 'sequence' in event:
                         self.asr_pending.discard(event['sequence'])
                     else:

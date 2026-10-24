@@ -4,17 +4,17 @@
 
 This project is a voice-direction and offline speech-transcription application for **Quectel PI M2** and the **Quectel VA60X-GL** six-microphone array board.
 
-The interface starts in Chinese. Use the **English** button in the header to switch to English; **Save** persists the interface language and gate threshold. Recognition language defaults to `auto`: Chinese speech produces Chinese text, while English speech produces English text. The interface language does not translate recognized text. A typical English-interface result is `[Direction 060°] Hello`; when direction evidence is insufficient, it uses `[Direction unknown]`.
+The interface starts in Chinese. Use the **English** button in the header to switch to English; **Save** persists the interface language and gate threshold. Recognition language defaults to `auto`: Chinese speech produces Chinese text, while English speech produces English text. The interface language does not translate recognized text. A typical English-interface result is `[Direction ~060° ±15°] Hello`; when direction evidence is insufficient, it uses `[Direction unknown]`.
 
 In live mode, **Detect device again** stops capture and reopens the VA60X-GL by USB VID:PID after a reconnect or ALSA card-number change. Existing transcripts are kept. The control is hidden in demo and WAV replay modes; it cannot repair a physical USB disconnect.
 
-The cyberpunk-style interface shows a direction radar on the left, angle, speech state, level, and gate information on the right, and offline transcripts at the bottom. A cyan arrow points toward the source only when voice detection, adaptive speech-band level, and direction consistency all pass. The radar displays an idle reticle when no valid source is present.
+The cyberpunk-style interface shows a direction radar on the left, angle, speech state, level, and gate information on the right, and offline transcripts at the bottom. In the default mode, the cyan arrow and a 30° sector appear only after an utterance has been transcribed with sufficient direction evidence. The arrow stays locked to that sentence instead of following subsequent ambient noise.
 
 The Quectel PI M2 version provides voice direction and speech-to-text together in a compact interface. Recognition runs in a separate background thread so localization can continue without waiting for inference. Audio is processed locally and is not uploaded.
 
-Each transcript uses direction evidence collected while that sentence was spoken. The application computes a circular mean weighted by consistency and audio duration; it does not use the direction at recognition completion or the visually smoothed arrow angle. Pre-roll audio and trailing silence do not contribute direction evidence, and each part of a long utterance is evaluated independently.
+Each transcript uses direction evidence collected while that sentence was spoken and above the base gate. The application computes a circular mean weighted by consistency and audio duration, then rounds it to the nearest 30° sector; the same sector appears on the pointer and transcript. Pre-roll audio and trailing silence do not contribute direction evidence, and each part of a long utterance is evaluated independently.
 
-By default, a transcript direction requires at least 120 ms of valid evidence, coverage of at least 20% of voiced duration, and direction concentration of at least 0.6. When evidence is missing or conflicting, transcription continues and the direction is reported as unknown.
+By default, a transcript direction requires at least 250 ms of valid evidence above the base gate, coverage of at least 30% of voiced duration, and direction concentration of at least 0.7. When evidence is missing or conflicting, transcription continues, the direction is unknown, and the pointer is hidden.
 
 ## Start
 
@@ -27,7 +27,7 @@ bash run.sh
 
 Replace `/path/to` with the actual parent directory of the project on the board.
 
-The default runtime uses WebRTC VAD voting across three spaced raw microphones. At least two channels must report speech before voice is confirmed. Playback speech can also trigger VAD, and music or noise may still cause false positives. In live VAD mode, the arrow and angle are hidden as soon as the latest result no longer confirms both speech and a valid direction; the old angle remains only inside the tracker for smoothing. VAD itself takes a short time to confirm speech has ended. Demo and explicit `--no-vad` modes retain the previous short display hold.
+The default runtime uses WebRTC VAD voting across three spaced raw microphones. At least two channels must report speech before voice is confirmed. Playback speech can also trigger VAD, and music or noise may still cause false positives. Real-time VAD now segments speech and gathers directional evidence without moving the displayed pointer frame by frame. After approximately 800 ms of trailing silence plus recognition time, a valid sentence locks the arrow to its range until the next result, transcript clear, or device reconnect. This intentional display hold is allowed during silence; the base gate applies to evidence collection. Demo and explicit `--no-asr` modes retain the previous live-arrow behaviour.
 
 Speech recognition uses the SenseVoice INT8 model stored locally on Quectel PI M2 and detects the language of each segment automatically. Set `asr_language` to `zh` or `en` to select a fixed language, then restart the application.
 
@@ -53,11 +53,11 @@ Keep the environment quiet and observe the input level, then speak at a normal v
 
 A more negative value, such as -40, is easier to trigger. A value closer to zero, such as -30, is harder to trigger. The pink marker on the level meter shows the current base gate. Click **Save** to persist it across restarts.
 
-The saved value is the **base gate**. After speech is confirmed, the application can use a more permissive speech-band gate based on the learned background-noise spectrum. The interface displays the effective gate as well. Transcript directions do not depend on whether the smoothed display arrow passes the base gate.
+The saved value is a **hard gate for sentence-direction evidence**. Blocks below it may still contribute to text recognition, but never to that sentence's direction estimate. The adaptive speech-band gate assists voice detection and does not replace the base gate. If an entire utterance is below the base gate, text may appear with unknown direction and no arrow.
 
 Keep the environment quiet for the first two to three seconds so the application can learn the stable noise spectrum. The noise model is updated only when speech is not detected, and stable fan or hum frequencies are downweighted during localization.
 
-A large direction jump requires three consecutive similar results before the arrow moves. This reduces rotations caused by short interference, but a real speaker change may add roughly one hundred milliseconds of confirmation delay. The system does not separate simultaneous speakers; strong noise, multiple sources, and reverberation can still affect the result.
+Default sentence mode aggregates direction across an utterance and locks a 30° sector, avoiding frame-by-frame arrow movement from brief interference. The no-transcription live mode still uses jump confirmation and smoothing. The system does not separate simultaneous speakers; strong noise, multiple sources, and reverberation can still affect the result.
 
 The analyzed speech band is 250–4000 Hz. `speech_floor_dbfs` defaults to -58 dBFS, and `speech_snr_db` defaults to 2 dB. These values apply to the processed speech band rather than the full-band input level. Restart the application after changing them.
 
@@ -72,13 +72,14 @@ Advanced settings are stored in `config.json` and take effect after restart.
 | `mic_channels` | Zero-based indices for MIC_1, MIC_2, MIC_4, MIC_5, MIC_6, MIC_8 in physical order: `[0,4,5,1,2,3]` |
 | `mic_labels` | Physical positions corresponding to `mic_channels`: MIC_1, MIC_2, MIC_4, MIC_5, MIC_6, MIC_8 |
 | `radius_m` | Estimated 0.035 m microphone-ring radius; replace it when exact coordinates are available |
-| `gate_dbfs` | Base gate; may be relaxed automatically after speech is confirmed |
+| `gate_dbfs` | Hard base gate for sentence-direction evidence; quieter speech may still be transcribed |
 | `min_confidence` | Direction-consistency threshold; defaults to 0.2 and is a heuristic score, not an accuracy probability |
 | `vad_mode` | Voice-filter aggressiveness from 0 to 3; defaults to 2, with higher values being stricter |
 | `vad_channel` | Raw channel used as the starting VAD channel; defaults to CH0 |
 | `angle_offset_deg` | Global rotation applied to displayed directions |
 | `mirror` | Mirrors displayed directions |
-| `hold_seconds` | Internal direction-tracker hold and stale-result limit; live VAD mode does not display the old arrow for this duration |
+| `hold_seconds` | Real-time direction-tracker hold for demo or no-transcription mode; sentence mode locks the final direction instead |
+| `direction_sector_deg` | Width of the sentence pointer/transcript sector, default 30° (center ±15°) |
 
 ## Software and Hardware Principles
 
@@ -86,7 +87,7 @@ The tested VA60X-GL firmware exposes eight-channel, 16 kHz, signed 16-bit PCM th
 
 The six physical positions are modeled in MIC_1, MIC_2, MIC_4, MIC_5, MIC_6, MIC_8 order at 60-degree intervals. The channel mapping now follows the supplied board mapping. The algorithm assumes this physical order is clockwise and treats the MIC_1 radial direction as 0°. Verify that reference and the direction of increasing angles with a sound source at MIC_1 and an adjacent microphone. If the desired front direction differs, set `angle_offset_deg`; if angles run backward, set `mirror`. A `bash run.sh --probe --seconds 3` level summary alone cannot prove which physical MIC corresponds to each channel.
 
-WebRTC VAD analyzes continuous 20 ms frames from raw channels and carries incomplete frame data across capture blocks. The direction result is smoothed circularly and drawn by Tk Canvas. The application estimates horizontal direction only; it does not estimate distance.
+WebRTC VAD analyzes continuous 20 ms frames from raw channels and carries incomplete frame data across capture blocks. Sentence direction is aggregated circularly, grouped into a sector, and drawn by Tk Canvas. The application estimates horizontal direction only; it does not estimate distance.
 
 - `app.py`: startup, capture worker, runtime coordination, and direction tracking.
 - `neon_ui.py`: cyberpunk interface, direction arrow, and gate controls.
@@ -132,6 +133,9 @@ This entry point accepts mono or multichannel, uncompressed 16-bit PCM WAV files
 | `asr_silence_seconds` | `0.8` | Trailing silence that ends an utterance |
 | `asr_min_speech_seconds` | `0.24` | Discards very short triggered segments |
 | `asr_max_seconds` | `15` | Maximum duration of each recognition segment |
+| `asr_direction_min_seconds` | `0.25` | Minimum valid direction duration above the base gate |
+| `asr_direction_min_coverage` | `0.3` | Minimum valid-direction coverage of voiced duration |
+| `asr_direction_min_consistency` | `0.7` | Minimum directional concentration within the sentence |
 
 The background queue accepts at most two waiting utterances. When it is full, new segments are skipped rather than blocking capture. Normal operation does not write live recordings or transcripts to disk.
 
