@@ -1,0 +1,7 @@
+.deps/
+.venv/
+models/
+__pycache__/
+*.wav
+*.raw
+diagnostics/*.json

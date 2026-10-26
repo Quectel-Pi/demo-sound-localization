@@ -1,0 +1,32 @@
+{
+  "device": "hw:MicArray,0",
+  "rate": 48000,
+  "channels": 8,
+  "mic_channels": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "radius_m": 0.04,
+  "frame_size": 2048,
+  "gate_dbfs": -35.0,
+  "min_confidence": 0.2,
+  "angle_offset_deg": 0.0,
+  "mirror": false,
+  "hold_seconds": 0.55,
+  "vad_enabled": true,
+  "vad_mode": 2,
+  "vad_channel": 0,
+  "asr_enabled": true,
+  "asr_language": "auto",
+  "asr_channel": 0,
+  "asr_threads": 2,
+  "asr_model_dir": "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
+  "asr_pre_roll_seconds": 0.3,
+  "asr_silence_seconds": 0.8,
+  "asr_min_speech_seconds": 0.24,
+  "asr_max_seconds": 15.0
+}
