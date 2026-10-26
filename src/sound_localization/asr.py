@@ -9,7 +9,7 @@ import threading
 import time
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MODEL = 'models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17'
 
 
@@ -174,11 +174,11 @@ class SenseVoiceRecognizer:
             folder = ROOT/folder
         model, tokens = folder/'model.int8.onnx', folder/'tokens.txt'
         if not model.is_file() or not tokens.is_file():
-            raise RuntimeError('Speech model missing. Run python3 setup_asr.py')
+            raise RuntimeError('Speech model missing. Run python3 tools/setup_asr.py')
         try:
             import sherpa_onnx
         except ImportError as exc:
-            raise RuntimeError('Recognition dependency missing. Install requirements-asr.txt in the project virtual environment') from exc
+            raise RuntimeError('Recognition dependency missing. Install requirements/asr.txt in the project virtual environment') from exc
         self.engine = sherpa_onnx.OfflineRecognizer.from_sense_voice(
             model=str(model), tokens=str(tokens), num_threads=cfg.get('asr_threads', 2),
             language=cfg.get('asr_language', 'auto'), use_itn=True, debug=False, provider='cpu')

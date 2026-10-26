@@ -2,13 +2,17 @@ import json
 import threading
 import time
 import unittest
+from pathlib import Path
 import numpy as np
-from asr import AsrService, Utterance, UtteranceSegmenter, validate_asr, format_transcript
+from sound_localization.asr import AsrService, Utterance, UtteranceSegmenter, validate_asr, format_transcript
+
+
+CONFIG = Path(__file__).resolve().parents[1]/'config'/'config.json'
 
 
 class SegmenterTests(unittest.TestCase):
     def setUp(self):
-        with open('config.json') as file:
+        with CONFIG.open() as file:
             self.cfg = json.load(file)
         self.cfg.update(rate=1000, asr_pre_roll_seconds=0.3, asr_silence_seconds=0.8,
                         asr_min_speech_seconds=0.24, asr_max_seconds=3)

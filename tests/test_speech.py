@@ -1,8 +1,12 @@
 import json
 import unittest
+from pathlib import Path
 import numpy as np
-from app import synthetic
-from speech import SpeechDetector, ArraySpeechDetector, Pipeline
+from sound_localization.app import synthetic
+from sound_localization.speech import SpeechDetector, ArraySpeechDetector, Pipeline
+
+
+CONFIG = Path(__file__).resolve().parents[1]/'config'/'config.json'
 
 
 class FakeVAD:
@@ -21,7 +25,7 @@ class FakeVAD:
 
 class SpeechTests(unittest.TestCase):
     def setUp(self):
-        with open('config.json') as file:
+        with CONFIG.open() as file:
             self.cfg = json.load(file)
         self.cfg.update(vad_enabled=True, vad_mode=2, gate_dbfs=-43)
 

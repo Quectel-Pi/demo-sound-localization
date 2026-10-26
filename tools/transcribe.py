@@ -7,8 +7,12 @@ import sys
 import time
 import wave
 import numpy as np
-from asr import SenseVoiceRecognizer, Utterance, UtteranceSegmenter, validate_asr
-from speech import SpeechDetector
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT/'src'))
+
+from sound_localization.asr import SenseVoiceRecognizer, Utterance, UtteranceSegmenter, validate_asr
+from sound_localization.speech import SpeechDetector
 
 
 def transcribe_file(path, cfg, channel=0, segmented=False):
@@ -53,7 +57,7 @@ def transcribe_file(path, cfg, channel=0, segmented=False):
 def main():
     parser = argparse.ArgumentParser(description='离线 WAV 语音识别验证')
     parser.add_argument('--file', required=True)
-    parser.add_argument('--config', default=str(Path(__file__).with_name('config.json')))
+    parser.add_argument('--config', default=str(ROOT/'config'/'config.json'))
     parser.add_argument('--channel', type=int, default=0)
     parser.add_argument('--segment', action='store_true', help='使用 VAD 分句，支持长录音')
     args = parser.parse_args()

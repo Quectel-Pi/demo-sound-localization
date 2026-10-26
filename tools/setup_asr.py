@@ -6,7 +6,7 @@ from pathlib import Path
 import tarfile
 import urllib.request
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 MODEL_NAME = 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17'
 MODEL_URL = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/'+MODEL_NAME+'.tar.bz2'
 

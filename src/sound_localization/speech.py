@@ -1,6 +1,6 @@
 """Offline WebRTC VAD gating, preserving all samples across 2048-frame blocks."""
 import numpy as np
-from localization import Localizer
+from .localization import Localizer
 
 
 class SpeechDetector:
@@ -10,7 +10,7 @@ class SpeechDetector:
             try:
                 import webrtcvad
             except ImportError as exc:
-                raise RuntimeError('WebRTC VAD missing. Install requirements-vad.txt as described in README') from exc
+                raise RuntimeError('WebRTC VAD missing. Install requirements/vad.txt as described in README') from exc
             backend = webrtcvad.Vad()
         self.backend = backend
         self.buffer = bytearray()

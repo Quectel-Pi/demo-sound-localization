@@ -1,13 +1,17 @@
 import json
 import unittest
+from pathlib import Path
 import numpy as np
-from app import synthetic
-from localization import Localizer, Tracker, validate
+from sound_localization.app import synthetic
+from sound_localization.localization import Localizer, Tracker, validate
+
+
+CONFIG = Path(__file__).resolve().parents[1]/'config'/'config.json'
 
 
 class LocalizationTests(unittest.TestCase):
     def setUp(self):
-        with open('config.json') as file:
+        with CONFIG.open() as file:
             self.cfg = json.load(file)
         self.cfg.update(angle_offset_deg=0, mirror=False)
 

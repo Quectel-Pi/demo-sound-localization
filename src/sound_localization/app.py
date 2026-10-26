@@ -13,10 +13,13 @@ try:
     import numpy as np
 except ImportError:
     raise SystemExit('NumPy missing. Debian: sudo apt install python3-numpy python3-tk alsa-utils; then bash run.sh')
-from audio import Capture
-from localization import Tracker, validate
-from speech import Pipeline
-from asr import AsrService, UtteranceSegmenter, validate_asr, format_transcript
+from .audio import Capture
+from .localization import Tracker, validate
+from .speech import Pipeline
+from .asr import AsrService, UtteranceSegmenter, validate_asr, format_transcript
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def synthetic(cfg, angle, seed=7, amplitude=0.13):
@@ -110,7 +113,7 @@ class Application:
         self.asr_error = None
         self.asr_pending = set()
         self.transcripts = []
-        from neon_ui import CyberpunkView
+        from .neon_ui import CyberpunkView
         self.view = CyberpunkView(self)
         if cfg['asr_enabled']:
             self.asr_service = AsrService(dict(cfg))
@@ -281,7 +284,7 @@ class Application:
 
 def main():
     parser = argparse.ArgumentParser(description='Sipeed MA-USB8 voice direction and offline transcription')
-    parser.add_argument('--config', default='config.json')
+    parser.add_argument('--config', default=str(PROJECT_ROOT/'config'/'config.json'))
     parser.add_argument('--device', help='ALSA hardware device, e.g. hw:MicArray,0')
     sources = parser.add_mutually_exclusive_group()
     sources.add_argument('--demo', action='store_true', help='Synthetic audio demo')

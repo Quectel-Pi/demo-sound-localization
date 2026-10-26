@@ -3,17 +3,21 @@ import importlib.util
 import json
 from pathlib import Path
 import unittest
-from asr import DEFAULT_MODEL
-from transcribe import transcribe_file
+from sound_localization.asr import DEFAULT_MODEL
+from tools.transcribe import transcribe_file
+
+
+ROOT = Path(__file__).resolve().parents[1]
+CONFIG = ROOT/'config'/'config.json'
 
 
 class RealModelTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.fixture = Path(DEFAULT_MODEL)/'test_wavs/zh.wav'
+        cls.fixture = ROOT/DEFAULT_MODEL/'test_wavs/zh.wav'
         if not cls.fixture.is_file() or importlib.util.find_spec('sherpa_onnx') is None:
             raise unittest.SkipTest('optional SenseVoice model/dependency not installed')
-        with open('config.json') as file:
+        with CONFIG.open() as file:
             cls.cfg = json.load(file)
 
     def assert_chinese_sentence(self, result):
