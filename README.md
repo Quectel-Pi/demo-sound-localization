@@ -19,7 +19,7 @@ By default, a transcript direction requires at least 120 ms of valid evidence, c
 From a terminal in the Quectel PI M2 graphical desktop, enter the project directory and run:
 
 ```bash
-cd /path/to/sound_loca_demo
+cd /path/to/demo-sound-localization
 bash run.sh
 ```
 

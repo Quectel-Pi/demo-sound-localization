@@ -27,7 +27,7 @@ Quectel PI M2 版本默认同时提供人声指向与语音转文字，保持精
 在 Quectel PI M2 图形桌面的终端中进入项目目录并执行：
 
 ```bash
-cd /path/to/sound_loca_demo
+cd /path/to/demo-sound-localization
 bash run.sh
 ```
 
