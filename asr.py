@@ -1,6 +1,6 @@
 """Offline sentence ASR. Capture never waits for model loading or inference."""
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import math
 import queue
@@ -44,11 +44,21 @@ class Utterance:
     direction_deg: float | None = None
     direction_consistency: float = 0.0
     direction_seconds: float = 0.0
+    direction_speech_seconds: float = 0.0
+    direction_coverage: float = 0.0
+    direction_reasons: tuple[str, ...] = ()
+    direction_rejected_seconds: dict[str, float] = field(default_factory=dict)
+    direction_sector_distribution: list[dict[str, float | int]] = field(default_factory=list)
 
     def direction_info(self):
         return {'direction_deg': self.direction_deg,
                 'direction_consistency': self.direction_consistency,
-                'direction_seconds': self.direction_seconds}
+                'direction_seconds': self.direction_seconds,
+                'direction_speech_seconds': self.direction_speech_seconds,
+                'direction_coverage': self.direction_coverage,
+                'direction_reasons': self.direction_reasons,
+                'direction_rejected_seconds': dict(self.direction_rejected_seconds),
+                'direction_sector_distribution': [dict(item) for item in self.direction_sector_distribution]}
 
 
 def format_transcript(text, direction_deg):
@@ -75,6 +85,7 @@ class UtteranceSegmenter:
         self.direction_min_samples = round(cfg.get('asr_direction_min_seconds', 0.12)*self.rate)
         self.direction_min_coverage = cfg.get('asr_direction_min_coverage', 0.2)
         self.direction_min_consistency = cfg.get('asr_direction_min_consistency', 0.6)
+        self.direction_sector_width = cfg.get('direction_sector_deg', 30)
         self.reset()
 
     def reset(self):
@@ -85,6 +96,7 @@ class UtteranceSegmenter:
         self.recording = False
         self.direction_spans = []
         self.speech_spans = []
+        self.direction_rejection_spans = []
 
     def _remember(self, samples):
         self.pre.append(samples)
@@ -102,6 +114,7 @@ class UtteranceSegmenter:
 
     def _direction_info(self, limit):
         sine = cosine = weight_sum = valid_samples = 0.0
+        sector_samples = {}
         for start, end, angle, confidence in self.direction_spans:
             length = max(0, min(end, limit)-start)
             weight = length*confidence
@@ -110,14 +123,37 @@ class UtteranceSegmenter:
             cosine += weight*math.cos(radians)
             weight_sum += weight
             valid_samples += length
+            center, _ = direction_sector(angle, self.direction_sector_width)
+            sector_samples[center] = sector_samples.get(center, 0)+length
         consistency = min(1.0, math.hypot(sine, cosine)/weight_sum) if weight_sum else 0.0
         coverage = valid_samples/max(1, self._speech_samples(limit))
-        known = (valid_samples > 0 and valid_samples >= self.direction_min_samples
-                 and coverage >= self.direction_min_coverage
-                 and consistency >= self.direction_min_consistency)
+        reasons = []
+        if valid_samples < self.direction_min_samples:
+            reasons.append('insufficient_valid_duration')
+        if coverage < self.direction_min_coverage:
+            reasons.append('insufficient_coverage')
+        if consistency < self.direction_min_consistency:
+            reasons.append('low_consistency')
+        known = valid_samples > 0 and not reasons
         angle = math.degrees(math.atan2(sine, cosine)) % 360 if known else None
+        rejected_samples = {}
+        for start, end, reason in self.direction_rejection_spans:
+            length = max(0, min(end, limit)-start)
+            rejected_samples[reason] = rejected_samples.get(reason, 0)+length
+        sector_distribution = [
+            {'center_deg': center, 'seconds': samples/self.rate,
+             'share': samples/valid_samples}
+            for center, samples in sorted(sector_samples.items(), key=lambda item: (-item[1], item[0]))
+        ] if valid_samples else []
         return {'direction_deg': angle, 'direction_consistency': consistency,
-                'direction_seconds': valid_samples/self.rate}
+                'direction_seconds': valid_samples/self.rate,
+                'direction_speech_seconds': self._speech_samples(limit)/self.rate,
+                'direction_coverage': coverage,
+                'direction_reasons': tuple(reasons),
+                'direction_rejected_seconds': {
+                    reason: samples/self.rate for reason, samples in rejected_samples.items()
+                },
+                'direction_sector_distribution': sector_distribution}
 
     def feed(self, mono, speech, direction=None):
         samples = np.array(mono, dtype=np.int16, copy=True)
@@ -134,6 +170,15 @@ class UtteranceSegmenter:
             self.recording = True
         if speech:
             self.speech_spans.append((self.total, self.total+len(samples)))
+            if direction:
+                rejections = direction.get('sentence_direction_rejections')
+                if rejections is None and not direction.get('sentence_direction_valid', direction.get('active')):
+                    rejections = ('invalid_direction',)
+                for reason in rejections or ():
+                    self.direction_rejection_spans.append((self.total, self.total+len(samples), reason))
+            else:
+                self.direction_rejection_spans.append(
+                    (self.total, self.total+len(samples), 'missing_direction_data'))
         if speech and direction and direction.get('sentence_direction_valid', direction.get('active')):
             angle = direction.get('angle')
             confidence = direction.get('confidence', 0.0)
@@ -159,6 +204,11 @@ class UtteranceSegmenter:
                                     if end > self.max_samples]
             self.speech_spans = [(max(0, start-self.max_samples), end-self.max_samples)
                                  for start, end in self.speech_spans if end > self.max_samples]
+            self.direction_rejection_spans = [
+                (max(0, start-self.max_samples), end-self.max_samples, reason)
+                for start, end, reason in self.direction_rejection_spans
+                if end > self.max_samples
+            ]
             remainder = joined[self.max_samples:]
             self.parts = [remainder] if len(remainder) else []
             self.total = len(remainder)

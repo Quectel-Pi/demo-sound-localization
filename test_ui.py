@@ -1,4 +1,6 @@
 """Language and reconnect state checks that do not require a desktop display."""
+from contextlib import redirect_stderr
+import io
 import threading
 import queue
 from types import SimpleNamespace
@@ -16,7 +18,10 @@ class InterfaceTests(unittest.TestCase):
         application = Application.__new__(Application)
         application.transcripts = [('你好', 59.6), ('hello', None)]
         application.language = 'zh'
-        application.cfg = {'direction_sector_deg': 30}
+        application.cfg = {'direction_sector_deg': 30, 'gate_dbfs': -35,
+                           'min_confidence': 0.2, 'asr_direction_min_seconds': 0.25,
+                           'asr_direction_min_coverage': 0.3,
+                           'asr_direction_min_consistency': 0.7}
         self.assertEqual(application.transcript_lines(), ['[方向约 060° ±15°] 你好', '[方向未知] hello'])
         application.language = 'en'
         self.assertEqual(application.transcript_lines(), ['[Direction ~060° ±15°] 你好', '[Direction unknown] hello'])
@@ -24,7 +29,10 @@ class InterfaceTests(unittest.TestCase):
     def test_completed_sentence_locks_pointer_to_transcript_sector(self):
         application = Application.__new__(Application)
         application.language = 'zh'
-        application.cfg = {'direction_sector_deg': 30}
+        application.cfg = {'direction_sector_deg': 30, 'gate_dbfs': -35,
+                           'min_confidence': 0.2, 'asr_direction_min_seconds': 0.25,
+                           'asr_direction_min_coverage': 0.3,
+                           'asr_direction_min_consistency': 0.7}
         application.sentence_mode = True
         application.transcripts = []
         application.asr_pending = set()
@@ -44,8 +52,18 @@ class InterfaceTests(unittest.TestCase):
         self.assertEqual(application.sentence_consistency, 0.8)
         event['sequence'] = 2
         event['direction_deg'] = None
-        application.poll_asr()
+        event.update(direction_reasons=('insufficient_coverage',), direction_seconds=0.2,
+                     direction_speech_seconds=1.0, direction_coverage=0.2,
+                     direction_rejected_seconds={'gate_dbfs': 0.8})
+        log = io.StringIO()
+        with redirect_stderr(log):
+            application.poll_asr()
         self.assertIsNone(application.sentence_direction)
+        self.assertIn('[方向未知 #2] ASR：你好', log.getvalue())
+        self.assertIn('方向覆盖不足', log.getvalue())
+        self.assertIn('覆盖 20.0%（门限 30%）', log.getvalue())
+        self.assertIn('基础电平门限(-35.0 dBFS) 0.800s', log.getvalue())
+        self.assertEqual(application.transcript_lines(), ['[方向约 060° ±15°] 你好'])
 
     def test_live_capture_cannot_move_a_locked_sentence_pointer(self):
         application = Application.__new__(Application)

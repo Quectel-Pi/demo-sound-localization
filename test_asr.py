@@ -99,13 +99,26 @@ class SegmenterTests(unittest.TestCase):
     def test_uncertain_if_missing_sparse_or_conflicting_directions(self):
         segmenter = UtteranceSegmenter(self.cfg)
         segmenter.feed(np.ones(300, dtype=np.int16), True)
-        self.assertIsNone(segmenter.finish()[0].direction_deg)
+        missing = segmenter.finish()[0]
+        self.assertIsNone(missing.direction_deg)
+        self.assertIn('insufficient_valid_duration', missing.direction_reasons)
+        self.assertIn('insufficient_coverage', missing.direction_reasons)
+        self.assertIn('low_consistency', missing.direction_reasons)
+        self.assertAlmostEqual(missing.direction_speech_seconds, 0.3)
+        self.assertEqual(missing.direction_rejected_seconds, {'missing_direction_data': 0.3})
         segmenter.feed(np.ones(1700, dtype=np.int16), True, self.direction(90, active=False))
         segmenter.feed(np.ones(300, dtype=np.int16), True, self.direction(60))
-        self.assertIsNone(segmenter.finish()[0].direction_deg)
+        sparse = segmenter.finish()[0]
+        self.assertIsNone(sparse.direction_deg)
+        self.assertIn('insufficient_coverage', sparse.direction_reasons)
+        self.assertAlmostEqual(sparse.direction_coverage, 0.15)
+        self.assertEqual(sparse.direction_rejected_seconds, {'invalid_direction': 1.7})
         segmenter.feed(np.ones(300, dtype=np.int16), True, self.direction(0))
         segmenter.feed(np.ones(300, dtype=np.int16), True, self.direction(180))
-        self.assertIsNone(segmenter.finish()[0].direction_deg)
+        conflicting = segmenter.finish()[0]
+        self.assertIsNone(conflicting.direction_deg)
+        self.assertIn('low_consistency', conflicting.direction_reasons)
+        self.assertAlmostEqual(conflicting.direction_coverage, 1.0)
         self.assertEqual(format_transcript('你好', None), '[Direction unknown] 你好')
 
     def test_consecutive_sentences_do_not_share_directions(self):

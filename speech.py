@@ -45,7 +45,7 @@ class SpeechDetector:
             else:
                 self.positive_run = 0
                 self.negative_run += 1
-                if self.negative_run >= 10:
+                if self.negative_run >= 8:
                     self.speech = False
         return {'speech': self.speech, 'speech_ratio': float(np.mean(decisions)) if decisions else 0.0}
 
@@ -79,10 +79,19 @@ class Pipeline:
         result['effective_gate_dbfs'] = effective_gate if enabled else self.cfg['gate_dbfs']
         audible = result['analysis_dbfs'] >= floor
         snr_ok = result['snr_db'] is None or result['snr_db'] >= 0
+        # Keep the individual rejection causes so a completed utterance can explain
+        # why its transcript has no direction. Reasons may overlap for one block.
+        direction_checks = (
+            ('vad', voice['speech'] is True),
+            ('speech_floor', audible),
+            ('snr', snr_ok),
+            ('gate_dbfs', result['dbfs'] >= self.cfg['gate_dbfs']),
+            ('confidence', result['direction_valid']),
+        )
+        result['sentence_direction_rejections'] = tuple(
+            reason for reason, passed in direction_checks if not passed)
         # Sentence metadata has its own validity and never depends on the display gate.
-        result['sentence_direction_valid'] = bool(voice['speech'] and audible and snr_ok
-                                                  and result['dbfs'] >= self.cfg['gate_dbfs']
-                                                  and result['direction_valid'])
+        result['sentence_direction_valid'] = not result['sentence_direction_rejections']
         if enabled:
             result['active'] = bool(voice['speech'] and result['direction_valid'] and audible
                                    and result['analysis_dbfs'] >= effective_gate)

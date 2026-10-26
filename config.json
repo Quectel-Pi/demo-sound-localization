@@ -22,7 +22,7 @@
   ],
   "radius_m": 0.035,
   "frame_size": 512,
-  "gate_dbfs": -35.0,
+  "gate_dbfs": -40.0,
   "min_confidence": 0.2,
   "angle_offset_deg": 0.0,
   "mirror": false,
@@ -39,7 +39,7 @@
   "asr_silence_seconds": 0.8,
   "asr_min_speech_seconds": 0.24,
   "asr_max_seconds": 15.0,
-  "asr_direction_min_seconds": 0.25,
+  "asr_direction_min_seconds": 0.2,
   "asr_direction_min_coverage": 0.3,
   "asr_direction_min_consistency": 0.7,
   "direction_sector_deg": 30

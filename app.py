@@ -83,6 +83,46 @@ def probe(cfg, seconds, wav_path):
         'last_snr_db': last.get('snr_db')}, ensure_ascii=False, indent=2))
 
 
+def format_direction_unknown(event, cfg):
+    """Render one compact, two-line diagnostic for a transcript with unknown direction."""
+    reason_labels = {
+        'insufficient_valid_duration': '有效方向时长不足',
+        'insufficient_coverage': '方向覆盖不足',
+        'low_consistency': '方向一致性不足',
+    }
+    rejection_labels = {
+        'vad': 'VAD',
+        'speech_floor': '语音电平',
+        'snr': 'SNR',
+        'confidence': '定位置信度',
+    }
+    rejection_labels['gate_dbfs'] = f"基础电平门限({cfg.get('gate_dbfs', -35.0):.1f} dBFS)"
+    text = ' '.join(str(event.get('text', '')).split())
+    reasons = '、'.join(reason_labels.get(reason, reason)
+                        for reason in event.get('direction_reasons', ())) or '方向证据不足'
+    coverage = event.get('direction_coverage', 0.0)
+    consistency = event.get('direction_consistency', 0.0)
+    evidence = (f"有效方向 {event.get('direction_seconds', 0.0):.3f}/"
+                f"{event.get('direction_speech_seconds', 0.0):.3f}s，"
+                f"覆盖 {coverage:.1%}（门限 {cfg.get('asr_direction_min_coverage', 0.2):.0%}），"
+                f"一致性 {consistency:.3f}（门限 {cfg.get('asr_direction_min_consistency', 0.6):.3f}）")
+    sectors = sorted(event.get('direction_sector_distribution', []),
+                     key=lambda item: item.get('seconds', 0.0), reverse=True)
+    sector_text = '、'.join(
+        f"{item['center_deg']:03d}° {item['seconds']:.2f}s/{item['share']:.0%}"
+        for item in sectors[:4]
+    ) or '无有效方向帧'
+    if len(sectors) > 4:
+        sector_text += f'、另有 {len(sectors)-4} 个扇区'
+    rejected = event.get('direction_rejected_seconds', {})
+    rejected_text = '、'.join(
+        f'{rejection_labels.get(reason, reason)} {seconds:.3f}s'
+        for reason, seconds in sorted(rejected.items(), key=lambda item: item[1], reverse=True)
+    ) or '无'
+    return (f"[方向未知 #{event.get('sequence', '?')}] ASR：{text}\n"
+            f"  {reasons}；{evidence}；扇区：{sector_text}；未通过：{rejected_text}")
+
+
 class Application:
     def __init__(self, tk, cfg, args):
         self.tk = tk
@@ -212,7 +252,9 @@ class Application:
                     result = localizer.process(pcm)
                     if self.asr_service:
                         mono = pcm[:, self.cfg.get('asr_channel', 0)]
-                        for utterance in segmenter.feed(mono, result.get('speech_ratio', 0) >= 0.5, result):
+                        # Use the same debounced VAD state for utterance timing and
+                        # sentence-direction evidence, including its onset and release.
+                        for utterance in segmenter.feed(mono, result.get('speech') is True, result):
                             self.asr_service.submit(utterance)
                         self.asr_recording = segmenter.recording
                     self.put(result, run_id)
@@ -326,9 +368,13 @@ class Application:
                     self.asr_pending.discard(event['sequence'])
                     self.asr_error = None
                     if event['text']:
-                        self.transcripts.append((event['text'], event.get('direction_deg')))
-                        self.transcripts = self.transcripts[-20:]
-                        self.render_transcripts()
+                        if event.get('direction_deg') is None:
+                            print(format_direction_unknown(event, self.cfg),
+                                  file=sys.stderr, flush=True)
+                        else:
+                            self.transcripts.append((event['text'], event['direction_deg']))
+                            self.transcripts = self.transcripts[-20:]
+                            self.render_transcripts()
                         if self.sentence_mode:
                             sector = direction_sector(event.get('direction_deg'), self.cfg.get('direction_sector_deg', 30))
                             self.sentence_direction = None if sector is None else sector[0]
