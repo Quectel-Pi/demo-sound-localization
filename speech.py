@@ -54,6 +54,10 @@ class Pipeline:
     def __init__(self, cfg):
         self.cfg = cfg
         self.localizer = Localizer(cfg)
+        self.noise_calibration_target = max(1, round(
+            2.0*cfg['rate']/cfg['frame_size']))
+        self.noise_calibration_count = 0
+        self.noise_calibration_state = 'idle'
         self.detector = None
         if cfg.get('vad_enabled', False) or cfg.get('asr_enabled', False):
             self.detector = ArraySpeechDetector(cfg)
@@ -67,9 +71,20 @@ class Pipeline:
             voice = self.detector.process(pcm)
         else:
             self.detector = None
+        quiet_frame = voice['speech'] is False and voice['speech_ratio'] == 0
         result = self.localizer.process(pcm,
-            learn_noise=voice['speech'] is False and voice['speech_ratio'] == 0,
+            learn_noise=quiet_frame,
             suppress_noise=voice['speech'] is True)
+        if self.noise_calibration_state == 'calibrating' and quiet_frame:
+            self.noise_calibration_count += 1
+            if self.noise_calibration_count >= self.noise_calibration_target:
+                self.noise_calibration_state = 'complete'
+        result['noise_calibration'] = {
+            'state': ('paused' if self.noise_calibration_state == 'calibrating' and not quiet_frame
+                      else self.noise_calibration_state),
+            'frames': self.noise_calibration_count,
+            'target': self.noise_calibration_target,
+        }
         result.update(voice)
         floor = self.cfg.get('speech_floor_dbfs', -58.0)
         margin = self.cfg.get('speech_snr_db', 2.0)
@@ -97,6 +112,12 @@ class Pipeline:
                                    and result['analysis_dbfs'] >= effective_gate)
         result['vad_enabled'] = enabled
         return result
+
+    def start_noise_calibration(self):
+        """Start a two-second ambient sample; speech frames do not count."""
+        self.localizer.reset_noise_model()
+        self.noise_calibration_count = 0
+        self.noise_calibration_state = 'calibrating'
 
 
 class ArraySpeechDetector:

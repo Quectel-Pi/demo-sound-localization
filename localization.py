@@ -50,6 +50,11 @@ class Localizer:
         self.noise_power = None
         self.noise_frames = 0
 
+    def reset_noise_model(self):
+        """Forget the previous ambient-noise estimate before a manual calibration."""
+        self.noise_power = None
+        self.noise_frames = 0
+
     def process(self, pcm, *, learn_noise=False, suppress_noise=False):
         x = pcm[:, self.cfg['mic_channels']].astype(np.float64) / 32768.0
         rms = np.sqrt(np.mean(x*x, axis=0))

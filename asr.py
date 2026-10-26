@@ -31,6 +31,8 @@ def validate_asr(cfg):
         raise ValueError('Maximum utterance length must exceed pre-roll, silence, and minimum speech duration')
     if not 0 <= cfg.get('asr_direction_min_seconds', 0.12) <= 2:
         raise ValueError('Minimum direction duration must be in 0..2 seconds')
+    if not 0.2 <= cfg.get('asr_direction_hold_seconds', 2.5) <= 30:
+        raise ValueError('Sentence direction hold must be in 0.2..30 seconds')
     for key in ('asr_direction_min_coverage', 'asr_direction_min_consistency'):
         if not 0 <= cfg.get(key, 0.2 if key.endswith('coverage') else 0.6) <= 1:
             raise ValueError('Direction aggregation thresholds must be in 0..1')

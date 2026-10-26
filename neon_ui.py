@@ -106,7 +106,8 @@ class CyberpunkView:
         self.mode_label.pack(side='right')
         self.static.append((self.mode_label, mode, '●  '))
         self.text_button(header, 'language', owner.set_language, width=82).pack(side='right', padx=(0, 10))
-        if not (owner.args.demo or owner.args.wav):
+        if (not (owner.args.demo or owner.args.wav)
+                and (owner.cfg.get('vad_enabled') or owner.cfg.get('asr_enabled'))):
             self.text_button(header, 'retry', owner.retry_device, width=138).pack(side='right', padx=(0, 10))
 
         body = tk.Frame(self.root, bg=COLORS['bg'])
@@ -163,6 +164,12 @@ class CyberpunkView:
         NeonButton(adjust, '+', lambda: self.adjust_gate(1), width=34, accent='pink').grid(row=0, column=2)
         gate_bottom = tk.Frame(gate, bg=COLORS['panel'])
         gate_bottom.pack(fill='x', padx=18, pady=(3, 12))
+        self.calibrate_button = None
+        if not (owner.args.demo or owner.args.wav):
+            self.calibrate_button = self.text_button(
+                gate_bottom, 'noise_calibrate', owner.calibrate_noise,
+                width=136, accent='cyan')
+            self.calibrate_button.pack(side='left')
         self.text_button(gate_bottom, 'save', owner.save, width=82, accent='pink').pack(side='right')
 
         transcript = self.panel(self.root)
@@ -311,6 +318,20 @@ class CyberpunkView:
         self.gate_label.configure(text=f'{threshold:.0f} dBFS')
         effective = owner.latest.get('effective_gate_dbfs', threshold)
         self.gate_hint.configure(text=owner.tr('voice_gate', value=effective))
+        if self.calibrate_button is not None:
+            calibration = owner.noise_calibration
+            state = calibration.get('state', 'idle')
+            if state == 'calibrating':
+                key = 'noise_calibrating'
+                progress = calibration.get('frames', 0)/max(1, calibration.get('target', 1))
+                text = owner.tr(key, percent=min(100, round(progress*100)))
+            elif state == 'paused':
+                text = owner.tr('noise_calibration_paused')
+            elif state == 'complete':
+                text = owner.tr('noise_calibrated')
+            else:
+                text = owner.tr('noise_calibrate')
+            self.calibrate_button.set_text(text)
         meter = self.meter
         meter.delete('all')
         width = max(1, meter.winfo_width())

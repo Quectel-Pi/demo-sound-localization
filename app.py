@@ -5,6 +5,7 @@ import json
 import math
 from pathlib import Path
 import queue
+import re
 import sys
 import threading
 import time
@@ -139,6 +140,8 @@ class Application:
         self.root.minsize(900, 700)
         self.root.configure(bg='#070B14')
         self.queue = queue.Queue(maxsize=2)
+        self.noise_calibration_request = threading.Event()
+        self.noise_calibration = {'state': 'idle', 'frames': 0, 'target': 0}
         self.stop = threading.Event()
         self.run_id = 0
         self.retry_pending = False
@@ -151,6 +154,7 @@ class Application:
         self.last_result = -1e9
         self.display_angle = 0.0
         self.sentence_direction = None
+        self.sentence_direction_until = -1e9
         self.sentence_consistency = 0.0
         self.alive = False
         self.gate = tk.DoubleVar(value=cfg['gate_dbfs'])
@@ -189,10 +193,13 @@ class Application:
         self.done = False
         self.retry_pending = False
         self.capture = None
+        self.noise_calibration_request.clear()
+        self.noise_calibration = {'state': 'idle', 'frames': 0, 'target': 0}
         self.asr_recording = False
         self.last_result = -1e9
         self.alive = False
         self.sentence_direction = None
+        self.sentence_direction_until = -1e9
         self.sentence_consistency = 0.0
         self.tracker = Tracker(self.cfg['hold_seconds'])
         self.latest = {'dbfs': -90, 'confidence': 0, 'active': False, 'angle': None, 'rms': [0]*6}
@@ -208,10 +215,12 @@ class Application:
         if self.retry_pending:
             return
         self.retry_pending = True
+        self.noise_calibration_request.clear()
         self.stop.set()
         self.error = None
         self.done = False
         self.sentence_direction = None
+        self.sentence_direction_until = -1e9
         self.asr_recording = False
         self.asr_pending.clear()
         if self.asr_service:
@@ -249,6 +258,9 @@ class Application:
                 for pcm in capture.frames():
                     if stop.is_set():
                         break
+                    if self.noise_calibration_request.is_set():
+                        self.noise_calibration_request.clear()
+                        localizer.start_noise_calibration()
                     result = localizer.process(pcm)
                     if self.asr_service:
                         mono = pcm[:, self.cfg.get('asr_channel', 0)]
@@ -287,6 +299,14 @@ class Application:
         except (ValueError, OSError, self.tk.TclError) as exc:
             self.view.notify(self.tr('save_failed', error=exc), error=True)
 
+    def calibrate_noise(self):
+        if self.noise_calibration.get('state') == 'calibrating':
+            return
+        self.noise_calibration = {'state': 'calibrating', 'frames': 0,
+                                  'target': max(1, round(2.0*self.cfg['rate']/self.cfg['frame_size']))}
+        self.noise_calibration_request.set()
+        self.view.notify(self.tr('noise_calibration_started'))
+
     def tick(self):
         try:
             self.cfg['gate_dbfs'] = float(self.gate.get())
@@ -306,6 +326,9 @@ class Application:
                 self.done = True
             else:
                 self.latest = value
+                calibration = value.get('noise_calibration')
+                if calibration is not None:
+                    self.noise_calibration = calibration
                 self.last_result = now
                 tracked_angle, _ = self.tracker.update(value, now)
                 if not self.sentence_mode:
@@ -313,6 +336,9 @@ class Application:
         if self.retry_pending and not self.worker.is_alive():
             self.start_capture()
         self.poll_asr()
+        if (self.sentence_mode and self.sentence_direction is not None
+                and now >= getattr(self, 'sentence_direction_until', float('inf'))):
+            self.sentence_direction = None
         self.alive = (self.sentence_direction is not None and not self.error) if self.sentence_mode else self.direction_visible(now)
         self.draw(now)
         self.root.after(33, self.tick)
@@ -333,6 +359,7 @@ class Application:
     def clear_transcripts(self):
         self.transcripts.clear()
         self.sentence_direction = None
+        self.sentence_direction_until = -1e9
         self.alive = False
         self.render_transcripts()
 
@@ -348,6 +375,14 @@ class Application:
             label = self.tr('direction_unknown') if sector is None else self.tr('direction_range', angle=sector[0], half=sector[1])
             lines.append(f'[{label}] {text}')
         return lines
+
+    def transcript_is_displayable(self, event):
+        text = re.sub(r'[^\w]', '', event.get('text', ''), flags=re.UNICODE)
+        min_chars = self.cfg.get('asr_display_min_characters', 2)
+        min_seconds = self.cfg.get('asr_display_min_speech_seconds', 0.45)
+        speech_seconds = event.get('direction_speech_seconds',
+                                   event.get('audio_seconds', min_seconds))
+        return len(text) >= min_chars and speech_seconds >= min_seconds
 
     def render_transcripts(self):
         widget = self.transcript_text
@@ -368,29 +403,38 @@ class Application:
                     self.asr_pending.discard(event['sequence'])
                     self.asr_error = None
                     if event['text']:
+                        length_ok = self.transcript_is_displayable(event)
+                        displayable = event.get('direction_deg') is not None and length_ok
                         if event.get('direction_deg') is None:
                             print(format_direction_unknown(event, self.cfg),
                                   file=sys.stderr, flush=True)
-                        else:
+                        elif displayable:
                             self.transcripts.append((event['text'], event['direction_deg']))
                             self.transcripts = self.transcripts[-20:]
                             self.render_transcripts()
-                        if self.sentence_mode:
-                            sector = direction_sector(event.get('direction_deg'), self.cfg.get('direction_sector_deg', 30))
+                        if self.sentence_mode and length_ok:
+                            sector = (direction_sector(event.get('direction_deg'), self.cfg.get('direction_sector_deg', 30))
+                                      if event.get('direction_deg') is not None else None)
                             self.sentence_direction = None if sector is None else sector[0]
                             if sector is not None:
                                 self.display_angle = sector[0]
+                                self.sentence_direction_until = (time.monotonic()
+                                    + self.cfg.get('asr_direction_hold_seconds', 2.5))
+                            else:
+                                self.sentence_direction_until = -1e9
                             self.sentence_consistency = event.get('direction_consistency', 0.0)
-                        self.asr_message_key = 'asr_result'
+                        self.asr_message_key = 'asr_result' if length_ok else 'asr_filtered'
                         self.asr_result_seconds = event['recognition_seconds']
                     else:
                         if self.sentence_mode:
                             self.sentence_direction = None
+                            self.sentence_direction_until = -1e9
                         self.asr_message_key = 'asr_empty'
                 elif kind == 'error':
                     self.asr_error = event['message']
                     if self.sentence_mode:
                         self.sentence_direction = None
+                        self.sentence_direction_until = -1e9
                     if 'sequence' in event:
                         self.asr_pending.discard(event['sequence'])
                     else:
