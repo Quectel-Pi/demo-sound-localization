@@ -1,6 +1,6 @@
 [简体中文](README.zh-CN.md)
 
-# Sound Direction / Voice Direction and Speech Transcription
+# Sound Direction
 
 This project is a voice-direction and offline speech-transcription application for **Quectel PI M2**, the Sipeed 6+1 microphone array, and the MA-USB8 board.
 
@@ -13,6 +13,9 @@ The Quectel PI M2 version provides voice direction and speech-to-text together i
 Each transcript uses direction evidence collected while that sentence was spoken. The application computes a circular mean weighted by consistency and audio duration; it does not use the direction at recognition completion or the visually smoothed arrow angle. Pre-roll audio and trailing silence do not contribute direction evidence, and each part of a long utterance is evaluated independently.
 
 By default, a transcript direction requires at least 120 ms of valid evidence, coverage of at least 20% of voiced duration, and direction concentration of at least 0.6. When evidence is missing or conflicting, transcription continues and the direction is reported as unknown.
+
+<img width="1140" height="855" alt="image" src="https://github.com/user-attachments/assets/35904af6-2913-4594-8d4c-02c243d459c4" />
+
 
 ## Start
 
