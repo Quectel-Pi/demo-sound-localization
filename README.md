@@ -14,7 +14,7 @@ Each transcript uses direction evidence collected while that sentence was spoken
 
 By default, a transcript direction requires at least 120 ms of valid evidence, coverage of at least 20% of voiced duration, and direction concentration of at least 0.6. When evidence is missing or conflicting, transcription continues and the direction is reported as unknown.
 
-<img width="1140" height="855" alt="20261026-132543" src="https://github.com/user-attachments/assets/6d03b890-8e49-44e3-89e6-6afe709c9d1a" />
+![Sound Direction application interface](images/sound-direction-demo.png)
 
 ## Start
 
