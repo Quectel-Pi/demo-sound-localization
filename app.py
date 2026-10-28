@@ -14,11 +14,53 @@ try:
     import numpy as np
 except ImportError:
     raise SystemExit('NumPy missing. Debian: sudo apt install python3-numpy python3-tk alsa-utils; then bash run.sh')
-from audio import Capture
-from localization import Tracker, validate
-from speech import Pipeline
-from asr import AsrService, UtteranceSegmenter, direction_sector, validate_asr
-from i18n import translate
+from sound_direction.audio import Capture
+from sound_direction.localization import Tracker, validate
+from sound_direction.live_direction import LiveDirection
+from sound_direction.speech import Pipeline
+from sound_direction.asr import AsrService, UtteranceSegmenter, direction_sector, validate_asr
+from sound_direction.i18n import translate
+
+
+def format_direction_unknown(event, cfg):
+    """Render a compact terminal diagnostic for an unknown transcript direction."""
+    reason_labels = {
+        'insufficient_valid_duration': '有效方向时长不足',
+        'insufficient_coverage': '方向覆盖不足',
+        'low_consistency': '方向一致性不足',
+    }
+    rejection_labels = {
+        'vad': 'VAD',
+        'speech_floor': '语音电平',
+        'snr': 'SNR',
+        'confidence': '定位置信度',
+        'gate_dbfs': f"基础电平门限({cfg.get('gate_dbfs', -35.0):.1f} dBFS)",
+    }
+    text = ' '.join(str(event.get('text', '')).split())
+    reasons = '、'.join(reason_labels.get(reason, reason)
+                         for reason in event.get('direction_reasons', ())) or '方向证据不足'
+    coverage = event.get('direction_coverage', 0.0)
+    consistency = event.get('direction_consistency', 0.0)
+    evidence = (f"有效方向 {event.get('direction_seconds', 0.0):.3f}/"
+                f"{event.get('direction_speech_seconds', 0.0):.3f}s，"
+                f"覆盖 {coverage:.1%}（门限 {cfg.get('asr_direction_min_coverage', 0.2):.0%}），"
+                f"一致性 {consistency:.3f}（门限 "
+                f"{cfg.get('asr_direction_min_consistency', 0.6):.3f}）")
+    sectors = sorted(event.get('direction_sector_distribution', []),
+                     key=lambda item: item.get('seconds', 0.0), reverse=True)
+    sector_text = '、'.join(
+        f"{item['center_deg']:03d}° {item['seconds']:.2f}s/{item['share']:.0%}"
+        for item in sectors[:4]
+    ) or '无有效方向帧'
+    if len(sectors) > 4:
+        sector_text += f'、另有 {len(sectors)-4} 个扇区'
+    rejected = event.get('direction_rejected_seconds', {})
+    rejected_text = '、'.join(
+        f'{rejection_labels.get(reason, reason)} {seconds:.3f}s'
+        for reason, seconds in sorted(rejected.items(), key=lambda item: item[1], reverse=True)
+    ) or '无'
+    return (f"[方向未知 #{event.get('sequence', '?')}] ASR：{text}\n"
+            f"  {reasons}；{evidence}；扇区：{sector_text}；未通过：{rejected_text}")
 
 
 def synthetic(cfg, angle, seed=7, amplitude=0.13):
@@ -84,46 +126,6 @@ def probe(cfg, seconds, wav_path):
         'last_snr_db': last.get('snr_db')}, ensure_ascii=False, indent=2))
 
 
-def format_direction_unknown(event, cfg):
-    """Render one compact, two-line diagnostic for a transcript with unknown direction."""
-    reason_labels = {
-        'insufficient_valid_duration': '有效方向时长不足',
-        'insufficient_coverage': '方向覆盖不足',
-        'low_consistency': '方向一致性不足',
-    }
-    rejection_labels = {
-        'vad': 'VAD',
-        'speech_floor': '语音电平',
-        'snr': 'SNR',
-        'confidence': '定位置信度',
-    }
-    rejection_labels['gate_dbfs'] = f"基础电平门限({cfg.get('gate_dbfs', -35.0):.1f} dBFS)"
-    text = ' '.join(str(event.get('text', '')).split())
-    reasons = '、'.join(reason_labels.get(reason, reason)
-                        for reason in event.get('direction_reasons', ())) or '方向证据不足'
-    coverage = event.get('direction_coverage', 0.0)
-    consistency = event.get('direction_consistency', 0.0)
-    evidence = (f"有效方向 {event.get('direction_seconds', 0.0):.3f}/"
-                f"{event.get('direction_speech_seconds', 0.0):.3f}s，"
-                f"覆盖 {coverage:.1%}（门限 {cfg.get('asr_direction_min_coverage', 0.2):.0%}），"
-                f"一致性 {consistency:.3f}（门限 {cfg.get('asr_direction_min_consistency', 0.6):.3f}）")
-    sectors = sorted(event.get('direction_sector_distribution', []),
-                     key=lambda item: item.get('seconds', 0.0), reverse=True)
-    sector_text = '、'.join(
-        f"{item['center_deg']:03d}° {item['seconds']:.2f}s/{item['share']:.0%}"
-        for item in sectors[:4]
-    ) or '无有效方向帧'
-    if len(sectors) > 4:
-        sector_text += f'、另有 {len(sectors)-4} 个扇区'
-    rejected = event.get('direction_rejected_seconds', {})
-    rejected_text = '、'.join(
-        f'{rejection_labels.get(reason, reason)} {seconds:.3f}s'
-        for reason, seconds in sorted(rejected.items(), key=lambda item: item[1], reverse=True)
-    ) or '无'
-    return (f"[方向未知 #{event.get('sequence', '?')}] ASR：{text}\n"
-            f"  {reasons}；{evidence}；扇区：{sector_text}；未通过：{rejected_text}")
-
-
 class Application:
     def __init__(self, tk, cfg, args):
         self.tk = tk
@@ -131,7 +133,7 @@ class Application:
         cfg = self.cfg
         cfg.update(vad_enabled=not (args.demo or args.no_vad),
                    asr_enabled=not (args.demo or args.no_asr))
-        self.sentence_mode = bool(cfg['vad_enabled'] and cfg['asr_enabled'])
+        self.voice_direction_mode = bool(cfg['vad_enabled'])
         self.direction_half_width = cfg.get('direction_sector_deg', 30)//2
         self.root = tk.Tk()
         self.language = cfg.get('ui_language', 'zh')
@@ -153,9 +155,7 @@ class Application:
         self.done = False
         self.last_result = -1e9
         self.display_angle = 0.0
-        self.sentence_direction = None
-        self.sentence_direction_until = -1e9
-        self.sentence_consistency = 0.0
+        self.live_direction = {'angle': None, 'consistency': 0.0, 'valid_until': -1e9}
         self.alive = False
         self.gate = tk.DoubleVar(value=cfg['gate_dbfs'])
         self.asr_service = None
@@ -165,7 +165,7 @@ class Application:
         self.asr_error = None
         self.asr_pending = set()
         self.transcripts = []
-        from neon_ui import CyberpunkView
+        from sound_direction.neon_ui import CyberpunkView
         self.view = CyberpunkView(self)
         if cfg['asr_enabled']:
             self.asr_service = AsrService(dict(cfg))
@@ -198,9 +198,7 @@ class Application:
         self.asr_recording = False
         self.last_result = -1e9
         self.alive = False
-        self.sentence_direction = None
-        self.sentence_direction_until = -1e9
-        self.sentence_consistency = 0.0
+        self.live_direction = {'angle': None, 'consistency': 0.0, 'valid_until': -1e9}
         self.tracker = Tracker(self.cfg['hold_seconds'])
         self.latest = {'dbfs': -90, 'confidence': 0, 'active': False, 'angle': None, 'rms': [0]*6}
         if self.asr_service:
@@ -219,8 +217,7 @@ class Application:
         self.stop.set()
         self.error = None
         self.done = False
-        self.sentence_direction = None
-        self.sentence_direction_until = -1e9
+        self.live_direction = {'angle': None, 'consistency': 0.0, 'valid_until': -1e9}
         self.asr_recording = False
         self.asr_pending.clear()
         if self.asr_service:
@@ -243,6 +240,7 @@ class Application:
         try:
             localizer = Pipeline(self.cfg)
             segmenter = UtteranceSegmenter(self.cfg)
+            live_direction = LiveDirection(self.cfg) if self.voice_direction_mode else None
             if self.args.demo:
                 step = 0
                 while not stop.is_set():
@@ -262,6 +260,8 @@ class Application:
                         self.noise_calibration_request.clear()
                         localizer.start_noise_calibration()
                     result = localizer.process(pcm)
+                    if live_direction is not None:
+                        result['live_direction'] = live_direction.update(result, time.monotonic())
                     if self.asr_service:
                         mono = pcm[:, self.cfg.get('asr_channel', 0)]
                         # Use the same debounced VAD state for utterance timing and
@@ -330,37 +330,35 @@ class Application:
                 if calibration is not None:
                     self.noise_calibration = calibration
                 self.last_result = now
-                tracked_angle, _ = self.tracker.update(value, now)
-                if not self.sentence_mode:
+                if self.voice_direction_mode:
+                    self.live_direction = value.get('live_direction', self.live_direction)
+                    if self.live_direction['angle'] is not None:
+                        self.display_angle = self.live_direction['angle']
+                else:
+                    tracked_angle, _ = self.tracker.update(value, now)
                     self.display_angle = tracked_angle
         if self.retry_pending and not self.worker.is_alive():
             self.start_capture()
         self.poll_asr()
-        if (self.sentence_mode and self.sentence_direction is not None
-                and now >= getattr(self, 'sentence_direction_until', float('inf'))):
-            self.sentence_direction = None
-        self.alive = (self.sentence_direction is not None and not self.error) if self.sentence_mode else self.direction_visible(now)
+        if self.voice_direction_mode:
+            self.alive = (self.live_direction['angle'] is not None
+                          and now < self.live_direction['valid_until']
+                          and now-self.last_result < 1.0
+                          and not self.error and not self.done)
+        else:
+            self.alive = self.direction_visible(now)
         self.draw(now)
         self.root.after(33, self.tick)
 
     def direction_visible(self, now):
-        # Keep Tracker's angle smoothing, but do not keep its old arrow on screen
-        # after the latest VAD result says speech has ended.
         freshness = max(0.2, self.cfg['hold_seconds'])
         if self.error or self.done or now-self.last_result > freshness:
             return False
-        if self.cfg.get('vad_enabled', False):
-            return (self.latest.get('speech') is True and self.latest.get('active') is True
-                    and self.latest.get('angle') is not None
-                    and self.tracker.pending_angle is None)
-        # Synthetic demo and explicit --no-vad retain their existing behaviour.
+        # Synthetic demo and explicit --no-vad use the original tracker.
         return now-self.tracker.last_active < self.cfg['hold_seconds']
 
     def clear_transcripts(self):
         self.transcripts.clear()
-        self.sentence_direction = None
-        self.sentence_direction_until = -1e9
-        self.alive = False
         self.render_transcripts()
 
     def copy_transcripts(self):
@@ -371,8 +369,11 @@ class Application:
     def transcript_lines(self):
         lines = []
         for text, direction in self.transcripts:
+            if direction is None:
+                lines.append(text)
+                continue
             sector = direction_sector(direction, self.cfg.get('direction_sector_deg', 30))
-            label = self.tr('direction_unknown') if sector is None else self.tr('direction_range', angle=sector[0], half=sector[1])
+            label = self.tr('direction_range', angle=sector[0], half=sector[1])
             lines.append(f'[{label}] {text}')
         return lines
 
@@ -403,38 +404,21 @@ class Application:
                     self.asr_pending.discard(event['sequence'])
                     self.asr_error = None
                     if event['text']:
-                        length_ok = self.transcript_is_displayable(event)
-                        displayable = event.get('direction_deg') is not None and length_ok
-                        if event.get('direction_deg') is None:
+                        if (event.get('direction_deg') is None and
+                                self.cfg.get('direction_unknown_log_enabled', True)):
                             print(format_direction_unknown(event, self.cfg),
                                   file=sys.stderr, flush=True)
-                        elif displayable:
+                        length_ok = self.transcript_is_displayable(event)
+                        if length_ok:
                             self.transcripts.append((event['text'], event['direction_deg']))
                             self.transcripts = self.transcripts[-20:]
                             self.render_transcripts()
-                        if self.sentence_mode and length_ok:
-                            sector = (direction_sector(event.get('direction_deg'), self.cfg.get('direction_sector_deg', 30))
-                                      if event.get('direction_deg') is not None else None)
-                            self.sentence_direction = None if sector is None else sector[0]
-                            if sector is not None:
-                                self.display_angle = sector[0]
-                                self.sentence_direction_until = (time.monotonic()
-                                    + self.cfg.get('asr_direction_hold_seconds', 2.5))
-                            else:
-                                self.sentence_direction_until = -1e9
-                            self.sentence_consistency = event.get('direction_consistency', 0.0)
                         self.asr_message_key = 'asr_result' if length_ok else 'asr_filtered'
                         self.asr_result_seconds = event['recognition_seconds']
                     else:
-                        if self.sentence_mode:
-                            self.sentence_direction = None
-                            self.sentence_direction_until = -1e9
                         self.asr_message_key = 'asr_empty'
                 elif kind == 'error':
                     self.asr_error = event['message']
-                    if self.sentence_mode:
-                        self.sentence_direction = None
-                        self.sentence_direction_until = -1e9
                     if 'sequence' in event:
                         self.asr_pending.discard(event['sequence'])
                     else:

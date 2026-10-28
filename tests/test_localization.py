@@ -2,7 +2,7 @@ import json
 import unittest
 import numpy as np
 from app import synthetic
-from localization import Localizer, Tracker, validate
+from sound_direction.localization import Localizer, Tracker, validate
 
 
 class LocalizationTests(unittest.TestCase):

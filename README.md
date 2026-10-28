@@ -1,18 +1,19 @@
-[English](README_EN.md) · [架构设计](arch.md) · [开源与贡献](opensource.md)
+[English](README_EN.md) · [架构设计](docs/arch.md) · [下一版本优化方案](docs/next-version-plan.md) · [开源与贡献](docs/opensource.md)
 
 # 声向 · Sound Direction
 
 面向 **Quectel PI M2** 与 **Quectel VA60X-GL** 六麦阵列板的本地人声方向定位和中英文离线转写应用。
 
-默认工作方式不是让指针随每个音频块抖动，而是等待一句话结束并完成转写后，再显示该句话的稳定方向范围。方向证据不足时仍显示文字，但标记为 `[方向未知]` 并隐藏指针。音频和转写均在本机处理，不上传。
+当前默认模式在人声方向积累约 0.16 秒有效证据后更新实时指针，无需等待转写。持续检测到人声时，即使短暂缺少有效定位帧，也会保留最近的稳定指向；人声结束后再短暂保持。SenseVoice 在后台识别并为文字附上该段方向；方向未知时界面只显示转写文字。音频和转写均在本机处理，不上传。
 
 ## 当前能力
 
 - VA60X-GL 八通道 USB 音频自动检测，USB VID:PID 为 `0bda:4cf0`；不依赖固定 ALSA 卡号。
 - 六个物理麦克风参与 GCC-PHAT / SRP 水平方位估计；空通道与回采通道不参与定位。
 - 三路分散麦克风的 WebRTC VAD 多数投票，用于确认人声和切分语句。
-- SenseVoice INT8 离线识别，默认自动识别中文、英文等模型支持的语言。
-- 一句话结束后汇总方向证据，量化为默认 30° 扇区，例如 `[方向约 060° ±15°] 你好`。
+- SenseVoice INT8 离线识别；当前配置固定为中文 `zh`，可改为 `auto` 自动判断模型支持的语言。
+- 实时人声方向使用短时圆周平均和方向锁定，默认观察最近 0.25 秒，容许短暂 VAD 掉票。
+- 一句话结束后另行汇总该段方向，量化为默认 30° 扇区并附在转写前，例如 `[方向约 060° ±15°] 你好`。
 - 中英文界面即时切换；保存按钮持久化界面语言和基础电平门限。
 - USB 重插或声卡号变化后，可在界面点击“重新检测设备”。
 - 提供真实采集探测、八通道 WAV 回放和合成演示模式。
@@ -89,9 +90,11 @@ bash run.sh --probe --seconds 5
 3. 六麦综合电平达到基础硬门限 `gate_dbfs`；
 4. 当前方向评分达到 `min_confidence`。
 
-一句话结束后，程序按有效时长和评分做圆周加权平均。默认还要求：有效方向累计至少 0.25 秒、覆盖语音时长至少 30%、圆周集中程度至少 0.7。通过后，结果四舍五入到最近的 30° 扇区；例如 68° 显示为 `60° ±15°`，352° 显示为 `0° ±15°`。指针与转写文本使用同一个扇区，并保持到下一条有效结果、清空记录或重新检测设备。
+实时指针只使用最近 0.25 秒的有效人声方向；累计至少 0.16 秒且方向集中程度达到 0.7 时出现。一段连续语音内，短暂 VAD 掉票可保持 0.45 秒；指针锁定首次确认方向附近默认 ±55°，并对低于 3 dB 的已校准信噪比帧不更新。确认语音结束后再保持 0.4 秒。
 
-低于基础门限的语音仍可进入 ASR，因此“有转写但方向未知”是允许的设计结果。详细公式、线程和状态流参见 [arch.md](arch.md)。
+转写条目的方向独立按整段有效时长和评分做圆周加权平均。当前配置要求：有效方向累计至少 0.2 秒、覆盖语音时长至少 30%、圆周集中程度至少 0.7。通过后，结果四舍五入到最近的 30° 扇区；例如 68° 显示为 `60° ±15°`，352° 显示为 `0° ±15°`。说话者移动时，当前指针与已完成片段的方向可能不同。
+
+低于基础门限的语音仍可进入 ASR；方向未知时，界面只显示转写文字，终端默认输出方向证据诊断。将 `direction_unknown_log_enabled` 设为 `false` 可关闭该日志。详细公式、线程和状态流参见 [架构设计](docs/arch.md)。
 
 ## 门限调节
 
@@ -102,13 +105,13 @@ bash run.sh --probe --seconds 5
 - 粉色标线是当前基础门限；点击“保存”写入 `config.json`。
 - 自适应人声门限只辅助 VAD，不会替代 `gate_dbfs` 这个方向证据硬门限。
 
-## 为什么经常显示“方向未知”
+## 为什么出现“方向未知”
 
 这不是单一错误，而是方向证据没有通过完整判定链。按以下顺序排查：
 
 1. 用 `--probe` 确认六个有效通道都有合理电平，程序索引 6、7 不应被当作麦克风。
-2. 正常说话时若综合电平经常低于 `gate_dbfs: -35`，先把门限逐步降到 -38 或 -40，避免一次调整过大。
-3. 短词可能达不到 `asr_direction_min_seconds: 0.25`；连续说完整一句再比较。
+2. 正常说话时若综合电平经常低于当前 `gate_dbfs: -40`，可小幅调整门限并观察方向显示是否改善。
+3. 短词可能达不到 `asr_direction_min_seconds: 0.2`；连续说完整一句再比较。
 4. 混响、多个人同时说话、播放声和移动声源会降低 `asr_direction_min_consistency: 0.7`。
 5. 说话片段中有效定位过少会低于 `asr_direction_min_coverage: 0.3`。
 6. 通道顺序、0° 方位或顺逆时针假设错误时，先做几何标定，不要用降低一致性门限掩盖映射问题。
@@ -126,23 +129,32 @@ bash run.sh --probe --seconds 5
 | `frame_size` | `512` | 每个定位块的每通道采样数 |
 | `mic_channels` | `[0,4,5,1,2,3]` | 六麦按物理环形顺序排列的程序索引 |
 | `radius_m` | `0.035` | 麦克风环半径估计值，单位米 |
-| `gate_dbfs` | `-35` | 语句方向证据的基础硬门限 |
+| `gate_dbfs` | `-40` | 语句方向证据的基础硬门限 |
 | `min_confidence` | `0.2` | 单块方向评分门限；是启发式分数，不是正确率 |
 | `angle_offset_deg` | `0` | 显示方向整体旋转角度 |
 | `mirror` | `false` | 翻转角度增长方向 |
-| `hold_seconds` | `0.55` | 仅用于无 ASR 或演示模式的实时指针保持 |
-| `vad_mode` | `2` | WebRTC VAD 严格度，范围 0–3，数值越大越严格 |
+| `hold_seconds` | `0.55` | 无 VAD 或演示模式使用的原有跟踪器保持时间 |
+| `live_direction_window_seconds` | `0.25` | 实时人声方向的滚动观察窗口 |
+| `live_direction_min_seconds` | `0.16` | 首次显示实时方向所需的有效音频时长 |
+| `live_direction_min_consistency` | `0.7` | 实时窗口内的最小方向集中程度 |
+| `live_direction_hold_seconds` | `0.4` | 确认语音结束后的短时保持 |
+| `live_direction_speech_gap_seconds` | `0.45` | 允许连续说话中短暂 VAD 掉票的时长 |
+| `live_direction_jump_confirm_seconds` | `0.35` | 大角度跳变需稳定持续的时长 |
+| `live_direction_min_snr_db` | `3.0` | 已建立噪声模型时，实时方向帧的最低信噪比 |
+| `live_direction_lock_degrees` | `55.0` | 连续语音期间相对首次方向的最大允许偏移 |
+| `vad_mode` | `3` | WebRTC VAD 严格度，范围 0–3，数值越大越严格 |
 | `vad_channel` | `0` | 三路 VAD 选点的起始物理麦克风 |
-| `asr_language` | `auto` | 识别语言；也可固定为 `zh` 或 `en` |
+| `asr_language` | `zh` | 当前固定中文；也可设为 `auto` 或 `en` |
 | `asr_channel` | `0` | ASR 使用的原始程序通道索引 |
 | `asr_pre_roll_seconds` | `0.3` | 人声触发前保留音频 |
-| `asr_silence_seconds` | `0.8` | 判定句尾的连续静音 |
+| `asr_silence_seconds` | `0.6` | 判定句尾的连续静音 |
 | `asr_min_speech_seconds` | `0.24` | 丢弃过短触发片段的下限 |
-| `asr_max_seconds` | `15` | 单个识别片段最大时长 |
-| `asr_direction_min_seconds` | `0.25` | 一句话所需的最短有效方向时长 |
+| `asr_max_seconds` | `5` | 单个识别片段最大时长；允许配置到 30 秒 |
+| `asr_direction_min_seconds` | `0.2` | 一句话所需的最短有效方向时长 |
 | `asr_direction_min_coverage` | `0.3` | 有效方向占语音时长的最低比例 |
 | `asr_direction_min_consistency` | `0.7` | 句内方向圆周集中程度下限 |
-| `direction_sector_deg` | `30` | 指针及文字的扇区宽度，当前为中心 ±15° |
+| `direction_unknown_log_enabled` | `true` | 是否在终端输出方向未知的详细诊断 |
+| `direction_sector_deg` | `30` | 实时指针范围和转写方向扇区宽度，当前为 ±15° |
 
 ## 常见问题
 
@@ -178,14 +190,11 @@ bash run.sh --probe --seconds 5
 
 ## 项目结构
 
-- `app.py`：启动、采集工作线程、UI 状态协调与设备重检。
-- `audio.py`：按 VID:PID 定位 ALSA 设备、`arecord` 采集与 WAV 输入。
-- `localization.py`：六麦 GCC-PHAT / SRP 定位与实时跟踪。
-- `speech.py`：语音频段质量判断、噪声模型与三路 VAD 投票。
-- `asr.py`：分句、方向汇总、SenseVoice 和后台识别队列。
-- `neon_ui.py` / `i18n.py`：界面绘制及中英文文案。
-- `transcribe.py`：独立 WAV 转写验证入口。
-- `setup_asr.py`：离线模型下载与完整性记录。
+- `sound_direction/`：采集、定位、人声检测、ASR、界面与翻译模块。
+- `tests/`：单元测试及可选的真实模型集成测试。
+- `docs/`：架构、方向判定和开源说明。
+- `app.py` / `transcribe.py` / `setup_asr.py`：应用、WAV 转写和模型准备入口。
+- `run.sh` / `test.sh` / `env.sh`：启动、测试和环境脚本。
 - `config.json`：硬件、定位、VAD、ASR 与显示参数。
 
 硬件依据：Quectel VA60X-GL 用户手册 V1.0.0 Preliminary（2026-03-06）及当前固件实测 USB/ALSA 描述。

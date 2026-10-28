@@ -1,6 +1,6 @@
 """Offline WebRTC VAD gating, preserving samples across arbitrary capture blocks."""
 import numpy as np
-from localization import Localizer
+from .localization import Localizer
 
 
 class SpeechDetector:

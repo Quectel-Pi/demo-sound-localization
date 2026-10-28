@@ -27,6 +27,14 @@
   "angle_offset_deg": 0.0,
   "mirror": false,
   "hold_seconds": 0.55,
+  "live_direction_window_seconds": 0.25,
+  "live_direction_min_seconds": 0.16,
+  "live_direction_min_consistency": 0.7,
+  "live_direction_hold_seconds": 0.4,
+  "live_direction_speech_gap_seconds": 0.45,
+  "live_direction_jump_confirm_seconds": 0.35,
+  "live_direction_min_snr_db": 3.0,
+  "live_direction_lock_degrees": 55.0,
   "vad_enabled": true,
   "vad_mode": 2,
   "vad_channel": 0,
@@ -44,6 +52,6 @@
   "asr_direction_min_seconds": 0.2,
   "asr_direction_min_coverage": 0.3,
   "asr_direction_min_consistency": 0.7,
-  "asr_direction_hold_seconds": 2.5,
+  "direction_unknown_log_enabled": true,
   "direction_sector_deg": 30
 }

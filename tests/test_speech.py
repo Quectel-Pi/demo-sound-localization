@@ -2,7 +2,7 @@ import json
 import unittest
 import numpy as np
 from app import synthetic
-from speech import SpeechDetector, ArraySpeechDetector, Pipeline
+from sound_direction.speech import SpeechDetector, ArraySpeechDetector, Pipeline
 
 
 class FakeVAD:

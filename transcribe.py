@@ -7,8 +7,8 @@ import sys
 import time
 import wave
 import numpy as np
-from asr import SenseVoiceRecognizer, Utterance, UtteranceSegmenter, validate_asr
-from speech import SpeechDetector
+from sound_direction.asr import SenseVoiceRecognizer, Utterance, UtteranceSegmenter, validate_asr
+from sound_direction.speech import SpeechDetector
 
 
 def transcribe_file(path, cfg, channel=0, segmented=False):

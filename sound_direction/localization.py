@@ -19,6 +19,19 @@ def validate(cfg):
         raise ValueError('frame_size must be a power of two in 512..8192')
     if not 0 <= cfg['min_confidence'] <= 1 or cfg['hold_seconds'] < 0:
         raise ValueError('Invalid confidence or hold duration')
+    window = cfg.get('live_direction_window_seconds', 0.25)
+    minimum = cfg.get('live_direction_min_seconds', 0.16)
+    consistency = cfg.get('live_direction_min_consistency', 0.7)
+    hold = cfg.get('live_direction_hold_seconds', 0.4)
+    speech_gap = cfg.get('live_direction_speech_gap_seconds', 0.45)
+    jump_confirm = cfg.get('live_direction_jump_confirm_seconds', 0.35)
+    live_snr = cfg.get('live_direction_min_snr_db', 3.0)
+    lock_degrees = cfg.get('live_direction_lock_degrees', 55.0)
+    if not (0.1 <= window <= 1 and 0 < minimum <= window
+            and 0 <= consistency <= 1 and 0.1 <= hold <= 2
+            and 0 <= speech_gap <= 2 and 0.1 <= jump_confirm <= 2
+            and 0 <= live_snr <= 15 and 15 <= lock_degrees <= 180):
+        raise ValueError('Invalid live direction window, evidence, consistency, or hold')
     if cfg.get('vad_mode', 2) not in (0, 1, 2, 3):
         raise ValueError('vad_mode must be in 0..3; higher values are stricter')
     if cfg.get('vad_channel', 0) not in indices:

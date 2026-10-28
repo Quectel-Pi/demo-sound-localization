@@ -3,7 +3,7 @@ import threading
 import time
 import unittest
 import numpy as np
-from asr import AsrService, Utterance, UtteranceSegmenter, direction_sector, validate_asr, format_transcript
+from sound_direction.asr import AsrService, Utterance, UtteranceSegmenter, direction_sector, validate_asr, format_transcript
 
 
 class SegmenterTests(unittest.TestCase):
@@ -65,6 +65,11 @@ class SegmenterTests(unittest.TestCase):
 
     def test_invalid_segment_parameters(self):
         self.cfg['asr_silence_seconds'] = -1
+        with self.assertRaises(ValueError):
+            validate_asr(self.cfg)
+
+    def test_unknown_direction_log_switch_must_be_boolean(self):
+        self.cfg['direction_unknown_log_enabled'] = 'false'
         with self.assertRaises(ValueError):
             validate_asr(self.cfg)
 
