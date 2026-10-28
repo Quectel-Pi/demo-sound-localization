@@ -314,8 +314,11 @@ AND 方向评分达到 min_confidence
 | `live_direction_handoff_window_seconds` | `0.55` | 锁外候选方向的观察窗口 |
 | `live_direction_handoff_min_seconds` | `0.4` | 交接方向的最少有效音频时长 |
 | `live_direction_handoff_min_consistency` | `0.85` | 交接方向的最低圆周集中程度 |
+| `live_direction_handoff_relaxed_consistency` | `0.8` | 旧方向近期证据稀少时的交接集中程度 |
 | `live_direction_handoff_min_share` | `0.75` | 候选占近期合格方向证据的最低比例 |
-| `vad_mode` | `3` | WebRTC VAD 严格度，范围 0–3 |
+| `live_direction_handoff_old_evidence_window_seconds` | `0.25` | 旧方向证据的近期观察窗口 |
+| `live_direction_handoff_old_evidence_max_frames` | `1` | 放宽门槛时允许的旧方向合格帧数上限 |
+| `vad_mode` | `2` | WebRTC VAD 严格度，范围 0–3 |
 | `vad_channel` | `0` | 三路分散 VAD 选点的起始麦克风 |
 | `speech_floor_dbfs` | 回退值 `-58.0` | 最低语音频段分析电平 |
 | `speech_snr_db` | 回退值 `2.0` | 相对噪声的语音频段门限裕量 |

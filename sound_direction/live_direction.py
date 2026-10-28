@@ -16,7 +16,10 @@ class LiveDirection:
         self.handoff_window = cfg.get('live_direction_handoff_window_seconds', 0.55)
         self.handoff_minimum = cfg.get('live_direction_handoff_min_seconds', 0.4)
         self.handoff_consistency = cfg.get('live_direction_handoff_min_consistency', 0.85)
+        self.handoff_relaxed_consistency = cfg.get('live_direction_handoff_relaxed_consistency', 0.8)
         self.handoff_share = cfg.get('live_direction_handoff_min_share', 0.75)
+        self.handoff_old_evidence_window = cfg.get('live_direction_handoff_old_evidence_window_seconds', 0.25)
+        self.handoff_old_evidence_max_frames = cfg.get('live_direction_handoff_old_evidence_max_frames', 1)
         self.frame_seconds = cfg['frame_size']/cfg['rate']
         self.samples = deque()
         self.handoff_samples = deque()
@@ -135,7 +138,14 @@ class LiveDirection:
                      for _, angle, confidence in self.handoff_samples)
         weight = sum(confidence for _, _, confidence in self.handoff_samples)
         consistency = math.hypot(sine, cosine)/weight
-        if consistency < self.handoff_consistency:
+        old_recent_frames = sum(
+            not is_candidate for timestamp, is_candidate in self.evidence_history
+            if now-timestamp < self.handoff_old_evidence_window
+        )
+        threshold = (self.handoff_relaxed_consistency
+                     if old_recent_frames <= self.handoff_old_evidence_max_frames
+                     else self.handoff_consistency)
+        if consistency < threshold:
             return False
         self.angle = math.degrees(math.atan2(sine, cosine)) % 360
         self.anchor_angle = self.angle

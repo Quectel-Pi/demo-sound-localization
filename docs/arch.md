@@ -125,7 +125,7 @@ Tk 组件只在主线程更新。工作线程产生短时采集结果；ASR 线�
 
 - 连续 2 个正帧进入人声状态；
 - 连续 8 个负帧退出人声状态；
-- `vad_mode` 范围 0–3，当前配置为 3，越大越严格。
+- `vad_mode` 范围 0–3，当前配置为 2，越大越严格。
 
 VAD 判断“像不像人声”，不判断是否为现场目标人员。扬声器播放的人声也可能通过。
 
@@ -246,7 +246,7 @@ if new_valid and duration >= self.minimum:
 
 ### 7.2 持续说话时为什么不应消失
 
-WebRTC VAD 的原始结果仍可能在连续说话中短暂变成 `false`，特别是 `vad_mode = 3`。实时跟踪层另外提供 `live_direction_speech_gap_seconds = 0.45` 秒容错：
+WebRTC VAD 的原始结果仍可能在连续说话中短暂变成 `false`；严格度越高越可能丢掉较弱的人声帧。实时跟踪层另外提供 `live_direction_speech_gap_seconds = 0.45` 秒容错：
 
 ```python
 speech = raw_speech or (
@@ -277,7 +277,7 @@ timeline
 
 | 层级 | 当前参数 | 作用 |
 | --- | ---: | --- |
-| 人声门控 | `vad_mode = 3`，3 路中至少 2 路 | 拦截大部分不像人声的声音 |
+| 人声门控 | `vad_mode = 2`，3 路中至少 2 路 | 拦截大部分不像人声的声音 |
 | 实时 SNR 门控 | `live_direction_min_snr_db = 3.0` | 噪声模型已建立时，低信噪比帧不推动指针 |
 | 本次语音方向锁 | `live_direction_lock_degrees = 55` | 首次指向建立后，锁外帧需走独立交接确认，不能直接推动旧指针 |
 
@@ -293,7 +293,38 @@ within_lock = (
 
 小幅变化用 `angle += 0.35 × delta` 平滑。候选角与当前角相差超过 45° 时，还需在接近的候选方向上持续 `live_direction_jump_confirm_seconds = 0.35` 秒才会转向。
 
-锁定范围外的合格方向帧进入独立的交接候选窗口，不参与当前指针的平滑。候选方向需在最近 `0.55` 秒内累计至少 `0.4` 秒、圆周一致性至少 `0.85`，并占同期合格方向证据的至少 `75%`，才会替换当前指向与方向锁。这样，在 180° 说话结束后 90° 立即接话、VAD 没有静音间隔的情况下，90° 仍能获得持续确认；短暂噪声或交替出现的远处方向不会立即抢走指针。实现见 [`LiveDirection._confirm_handoff()`](../sound_direction/live_direction.py)。
+锁定范围外的合格方向帧进入独立的交接候选窗口，不参与当前指针的平滑。交接条件如下：
+
+```mermaid
+flowchart TD
+    A[新方向帧：在旧锁定范围 ±55° 之外] --> B{最近 0.55 s 内<br/>新方向累计 ≥ 0.4 s？}
+    B -- 否 --> R[保持旧指向]
+    B -- 是 --> C{新方向占同期<br/>全部合格方向帧 ≥ 75%？}
+    C -- 否 --> R
+    C -- 是 --> D{最近 0.25 s 内<br/>旧方向合格帧 ≤ 1？}
+    D -- 是 --> E[一致性门槛 0.80]
+    D -- 否 --> F[一致性门槛 0.85]
+    E --> G{新方向圆周一致性达标？}
+    F --> G
+    G -- 否 --> R
+    G -- 是 --> H[切换指针和方向锁到新方向]
+```
+
+旧方向证据指仍在原 `anchor_angle` 的 ±55° 锁定范围内、且通过人声、方向有效性与实时 SNR 检查的帧。关键条件见 [`LiveDirection._confirm_handoff()`](../sound_direction/live_direction.py)：
+
+```python
+old_recent_frames = sum(
+    not is_candidate for timestamp, is_candidate in self.evidence_history
+    if now-timestamp < self.handoff_old_evidence_window
+)
+threshold = (self.handoff_relaxed_consistency
+             if old_recent_frames <= self.handoff_old_evidence_max_frames
+             else self.handoff_consistency)
+if consistency < threshold:
+    return False
+```
+
+例如 180° 说话结束后 90° 立即接话，即使整体 VAD 没有静音间隔，只要旧方向近期证据稀少，90° 候选就可按 0.80 门槛确认。放宽集中度只增加对方向抖动的容忍，不降低 `0.4` 秒的最短确认时长。这里的“缺少旧方向证据”不等于旧方向无声：当前只有整体 VAD 和单个主方向，无法分别检测两个方向的人声；稳定的非人声声源仍可能误触发交接。
 
 > 方向锁会在语音结束、保持期过后清空，也会在新的锁外候选方向通过交接检查时更新。如果第一次就被强干扰锁错，后续交接检查也无法识别说话人身份；当前系统没有声纹验证。
 

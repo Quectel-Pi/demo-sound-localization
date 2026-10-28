@@ -71,6 +71,19 @@ class LocalizationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate(self.cfg)
 
+    def test_reject_invalid_relaxed_handoff_settings(self):
+        for key, value in (
+            ('live_direction_handoff_relaxed_consistency', 0.9),
+            ('live_direction_handoff_old_evidence_window_seconds', 0.6),
+            ('live_direction_handoff_old_evidence_max_frames', -1),
+            ('live_direction_handoff_old_evidence_max_frames', True),
+        ):
+            with self.subTest(key=key, value=value):
+                cfg = dict(self.cfg)
+                cfg[key] = value
+                with self.assertRaises(ValueError):
+                    validate(cfg)
+
     def test_below_manual_gate_still_estimates_reliable_direction(self):
         self.cfg['gate_dbfs'] = -20
         result = Localizer(self.cfg).process(synthetic(self.cfg, 60, amplitude=0.01))

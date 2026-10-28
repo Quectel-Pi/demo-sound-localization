@@ -90,7 +90,7 @@ Each 512-sample block is approximately 32 ms. The localizer evaluates all 15 mic
 3. The six-microphone aggregate level reaches the hard `gate_dbfs` threshold.
 4. The frame direction score reaches `min_confidence`.
 
-The live pointer uses valid voice directions from the latest 0.25 seconds. It appears after at least 0.16 seconds of evidence with concentration of at least 0.7. Brief VAD dropouts can last up to 0.45 seconds without ending the tracked speech. Normal updates use frames within 55° of the locked direction; a stable, dominant direction outside that range can take over after a handoff check. Calibrated frames below 3 dB SNR do not move the pointer. It holds for 0.4 seconds after speech is confirmed to have ended and shows a default ±15° sector.
+The live pointer uses valid voice directions from the latest 0.25 seconds. It appears after at least 0.16 seconds of evidence with concentration of at least 0.7. Brief VAD dropouts can last up to 0.45 seconds without ending the tracked speech. Normal updates use frames within 55° of the locked direction; a stable, dominant direction outside that range can take over after a handoff check. If the old direction has at most one valid frame in the latest 0.25 seconds, the handoff concentration threshold relaxes from 0.85 to 0.80. Calibrated frames below 3 dB SNR do not move the pointer. It holds for 0.4 seconds after speech is confirmed to have ended and shows a default ±15° sector.
 
 Each transcript independently combines valid directions across its utterance, weighted by duration and score. The current configuration requires at least 0.2 seconds of valid direction, at least 30% coverage of voiced duration, and concentration of at least 0.7. A passing result is rounded to the nearest 30° sector: 68° becomes `60° ±15°`, while 352° becomes `0° ±15°`. When a speaker moves, the current pointer can differ from a completed transcript's direction.
 
@@ -145,8 +145,11 @@ Change one parameter at a time and keep source direction, distance, and voice le
 | `live_direction_handoff_window_seconds` | `0.55` | Window for directions outside the current lock |
 | `live_direction_handoff_min_seconds` | `0.4` | Minimum valid audio duration before a handoff |
 | `live_direction_handoff_min_consistency` | `0.85` | Minimum circular concentration of a new direction |
+| `live_direction_handoff_relaxed_consistency` | `0.8` | Handoff concentration when recent old-direction evidence is sparse |
 | `live_direction_handoff_min_share` | `0.75` | Minimum share of recent valid direction evidence from the candidate |
-| `vad_mode` | `3` | WebRTC VAD aggressiveness, 0–3; higher is stricter |
+| `live_direction_handoff_old_evidence_window_seconds` | `0.25` | Recent window for old-direction evidence |
+| `live_direction_handoff_old_evidence_max_frames` | `1` | Maximum old-direction valid frames allowing the relaxed threshold |
+| `vad_mode` | `2` | WebRTC VAD aggressiveness, 0–3; higher is stricter |
 | `vad_channel` | `0` | Starting physical microphone for the three VAD selections |
 | `asr_language` | `zh` | Currently fixed to Chinese; may be set to `auto` or `en` |
 | `asr_channel` | `0` | Raw software channel used for ASR |

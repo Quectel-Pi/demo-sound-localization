@@ -69,6 +69,27 @@ class LiveDirectionTests(unittest.TestCase):
         self.assertAlmostEqual(result['angle'], 90)
         self.assertAlmostEqual(self.tracker.anchor_angle, 90)
 
+    def test_relaxed_handoff_when_old_direction_has_no_recent_evidence(self):
+        for index in range(5):
+            self.frame(270, index*0.032)
+        # Three off-lock outliers make concentration about 0.81: below the
+        # normal 0.85 threshold but above the conditional 0.80 threshold.
+        for index, angle in enumerate([180]*3 + [90]*11):
+            result = self.frame(angle, (5+index)*0.032)
+        self.assertGreater(result['angle'], 100)
+        self.assertLess(result['angle'], 110)
+        self.assertAlmostEqual(self.tracker.anchor_angle, result['angle'])
+
+    def test_old_direction_evidence_keeps_strict_handoff_threshold(self):
+        for index in range(5):
+            self.frame(270, index*0.032)
+        candidate_angles = [180]*3 + [90]*11
+        timeline = candidate_angles[:9] + [270] + candidate_angles[9:12] + [270] + candidate_angles[12:]
+        for index, angle in enumerate(timeline):
+            result = self.frame(angle, (5+index)*0.032)
+        self.assertAlmostEqual(result['angle'], 270)
+        self.assertAlmostEqual(self.tracker.anchor_angle, 270)
+
     def test_alternating_far_direction_does_not_trigger_handoff(self):
         for index in range(5):
             self.frame(60, index*0.032)
