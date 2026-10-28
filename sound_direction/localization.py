@@ -27,10 +27,16 @@ def validate(cfg):
     jump_confirm = cfg.get('live_direction_jump_confirm_seconds', 0.35)
     live_snr = cfg.get('live_direction_min_snr_db', 3.0)
     lock_degrees = cfg.get('live_direction_lock_degrees', 55.0)
+    handoff_window = cfg.get('live_direction_handoff_window_seconds', 0.55)
+    handoff_minimum = cfg.get('live_direction_handoff_min_seconds', 0.4)
+    handoff_consistency = cfg.get('live_direction_handoff_min_consistency', 0.85)
+    handoff_share = cfg.get('live_direction_handoff_min_share', 0.75)
     if not (0.1 <= window <= 1 and 0 < minimum <= window
             and 0 <= consistency <= 1 and 0.1 <= hold <= 2
             and 0 <= speech_gap <= 2 and 0.1 <= jump_confirm <= 2
-            and 0 <= live_snr <= 15 and 15 <= lock_degrees <= 180):
+            and 0 <= live_snr <= 15 and 15 <= lock_degrees <= 180
+            and 0.2 <= handoff_window <= 2 and 0 < handoff_minimum <= handoff_window
+            and 0 <= handoff_consistency <= 1 and 0.5 <= handoff_share <= 1):
         raise ValueError('Invalid live direction window, evidence, consistency, or hold')
     if cfg.get('vad_mode', 2) not in (0, 1, 2, 3):
         raise ValueError('vad_mode must be in 0..3; higher values are stricter')

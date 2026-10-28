@@ -90,7 +90,7 @@ Each 512-sample block is approximately 32 ms. The localizer evaluates all 15 mic
 3. The six-microphone aggregate level reaches the hard `gate_dbfs` threshold.
 4. The frame direction score reaches `min_confidence`.
 
-The live pointer uses valid voice directions from the latest 0.25 seconds. It appears after at least 0.16 seconds of evidence with concentration of at least 0.7. Brief VAD dropouts can last up to 0.45 seconds without ending the tracked speech; the pointer stays within 55° of its initial direction during that speech and ignores calibrated frames below 3 dB SNR. It then holds for 0.4 seconds after speech is confirmed to have ended. The pointer shows a default ±15° sector.
+The live pointer uses valid voice directions from the latest 0.25 seconds. It appears after at least 0.16 seconds of evidence with concentration of at least 0.7. Brief VAD dropouts can last up to 0.45 seconds without ending the tracked speech. Normal updates use frames within 55° of the locked direction; a stable, dominant direction outside that range can take over after a handoff check. Calibrated frames below 3 dB SNR do not move the pointer. It holds for 0.4 seconds after speech is confirmed to have ended and shows a default ±15° sector.
 
 Each transcript independently combines valid directions across its utterance, weighted by duration and score. The current configuration requires at least 0.2 seconds of valid direction, at least 30% coverage of voiced duration, and concentration of at least 0.7. A passing result is rounded to the nearest 30° sector: 68° becomes `60° ±15°`, while 352° becomes `0° ±15°`. When a speaker moves, the current pointer can differ from a completed transcript's direction.
 
@@ -142,6 +142,10 @@ Change one parameter at a time and keep source direction, distance, and voice le
 | `live_direction_jump_confirm_seconds` | `0.35` | Continuous evidence needed for a large direction change |
 | `live_direction_min_snr_db` | `3.0` | Minimum calibrated SNR for a live direction frame |
 | `live_direction_lock_degrees` | `55.0` | Maximum deviation from the first direction during continuous speech |
+| `live_direction_handoff_window_seconds` | `0.55` | Window for directions outside the current lock |
+| `live_direction_handoff_min_seconds` | `0.4` | Minimum valid audio duration before a handoff |
+| `live_direction_handoff_min_consistency` | `0.85` | Minimum circular concentration of a new direction |
+| `live_direction_handoff_min_share` | `0.75` | Minimum share of recent valid direction evidence from the candidate |
 | `vad_mode` | `3` | WebRTC VAD aggressiveness, 0–3; higher is stricter |
 | `vad_channel` | `0` | Starting physical microphone for the three VAD selections |
 | `asr_language` | `zh` | Currently fixed to Chinese; may be set to `auto` or `en` |

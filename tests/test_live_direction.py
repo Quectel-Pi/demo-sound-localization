@@ -54,17 +54,63 @@ class LiveDirectionTests(unittest.TestCase):
             result = self.frame(220, 0.16+index*0.032)
         self.assertLess(abs((result['angle']-60+180) % 360-180), 5)
 
-    def test_sustained_competing_direction_does_not_steal_active_voice(self):
+    def test_sustained_new_speaker_takes_over_without_vad_pause(self):
+        for index in range(94):
+            result = self.frame(180, index*0.032)
+        self.assertAlmostEqual(result['angle'], 180)
+        for index in range(12):
+            result = self.frame(90, 94*0.032+index*0.032)
+            self.assertAlmostEqual(result['angle'], 180)
+        for index in range(12, 20):
+            result = self.frame(90, (94+index)*0.032)
+            if abs(result['angle']-90) < 1:
+                break
+        self.assertLess(index, 19)
+        self.assertAlmostEqual(result['angle'], 90)
+        self.assertAlmostEqual(self.tracker.anchor_angle, 90)
+
+    def test_alternating_far_direction_does_not_trigger_handoff(self):
         for index in range(5):
             self.frame(60, index*0.032)
         for index in range(50):
-            result = self.frame(220, 0.16+index*0.032)
+            result = self.frame(220 if index % 2 else 60, 0.16+index*0.032)
         self.assertAlmostEqual(result['angle'], 60)
+
+    def test_scattered_candidate_directions_do_not_trigger_handoff(self):
+        for index in range(5):
+            self.frame(60, index*0.032)
+        for index in range(30):
+            result = self.frame(180 if index % 2 else 300, 0.16+index*0.032)
+        self.assertAlmostEqual(result['angle'], 60)
+
+    def test_handoff_uses_circular_distance_across_zero(self):
+        for index in range(5):
+            self.frame(350, index*0.032)
+        for index in range(20):
+            result = self.frame(80, 0.16+index*0.032)
+        self.assertAlmostEqual(result['angle'], 80)
+
+    def test_nearby_new_direction_tracks_without_handoff(self):
+        for index in range(5):
+            self.frame(180, index*0.032)
+        for index in range(15):
+            result = self.frame(150, 0.16+index*0.032)
+        self.assertLess(abs(result['angle']-150), 5)
+        self.assertAlmostEqual(self.tracker.anchor_angle, 180)
+
+    def test_candidate_without_new_voice_evidence_cannot_take_over(self):
+        for index in range(5):
+            self.frame(180, index*0.032)
+        for index in range(13):
+            self.frame(90, 0.16+index*0.032)
+        for index in range(5):
+            result = self.frame(None, 0.576+index*0.032, valid=False)
+        self.assertAlmostEqual(result['angle'], 180)
 
     def test_low_snr_does_not_move_direction(self):
         for index in range(5):
             self.frame(60, index*0.032)
-        for index in range(12):
+        for index in range(30):
             result = self.tracker.update({'speech': True, 'sentence_direction_valid': True,
                                           'angle': 220, 'confidence': 0.8, 'snr_db': 1.0},
                                          0.16+index*0.032)
