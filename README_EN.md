@@ -1,144 +1,191 @@
-[简体中文](README.md)
+[简体中文](README.md) · [Architecture (Chinese)](arch.md) · [Open-source guide (Chinese)](opensource.md)
 
-# Sound Direction / Voice Direction and Speech Transcription
+# Sound Direction
 
-This project is a voice-direction and offline speech-transcription application for **Quectel PI M2** and the **Quectel VA60X-GL** six-microphone array board.
+A local voice-direction and offline multilingual transcription application for the **Quectel PI M2** and **Quectel VA60X-GL** six-microphone array.
 
-The interface starts in Chinese. Use the **English** button in the header to switch to English; **Save** persists the interface language and gate threshold. Recognition language defaults to `auto`: Chinese speech produces Chinese text, while English speech produces English text. The interface language does not translate recognized text. A typical English-interface result is `[Direction ~060° ±15°] Hello`; when direction evidence is insufficient, it uses `[Direction unknown]`.
+In its default mode, the application does not move the pointer for every audio block. It waits for an utterance to end and for transcription to complete, then shows a stable direction sector for that sentence. When directional evidence is insufficient, the text still appears as `[Direction unknown]` and the pointer remains hidden. Audio and transcripts stay on the device.
 
-In live mode, **Detect device again** stops capture and reopens the VA60X-GL by USB VID:PID after a reconnect or ALSA card-number change. Existing transcripts are kept. The control is hidden in demo and WAV replay modes; it cannot repair a physical USB disconnect.
+## Features
 
-The cyberpunk-style interface shows a direction radar on the left, angle, speech state, level, and gate information on the right, and offline transcripts at the bottom. In the default mode, the cyan arrow and a 30° sector appear only after an utterance has been transcribed with sufficient direction evidence. The arrow stays locked to that sentence instead of following subsequent ambient noise.
+- Automatic detection of VA60X-GL eight-channel USB audio by VID:PID `0bda:4cf0`, without relying on a fixed ALSA card number.
+- Horizontal GCC-PHAT / SRP localization using six physical microphones; the empty and loopback channels are excluded.
+- Majority-vote WebRTC VAD across three spaced microphones for speech confirmation and utterance segmentation.
+- Offline SenseVoice INT8 recognition with automatic language selection by default.
+- Per-utterance direction aggregation and a 30° sector such as `[Direction ~060° ±15°] Hello`.
+- Chinese and English UI with persisted language and base-level gate settings.
+- A **Detect device again** action for USB reconnects and ALSA card-number changes.
+- Live capture diagnostics, eight-channel WAV replay, and a synthetic demo mode.
 
-The Quectel PI M2 version provides voice direction and speech-to-text together in a compact interface. Recognition runs in a separate background thread so localization can continue without waiting for inference. Audio is processed locally and is not uploaded.
+## Hardware and Channel Mapping
 
-Each transcript uses direction evidence collected while that sentence was spoken and above the base gate. The application computes a circular mean weighted by consistency and audio duration, then rounds it to the nearest 30° sector; the same sector appears on the pointer and transcript. Pre-roll audio and trailing silence do not contribute direction evidence, and each part of a long utterance is evaluated independently.
+The tested firmware exposes **8-channel, 16 kHz, signed 16-bit, interleaved PCM**. Hardware documentation numbers channels from 1; the application uses zero-based indices:
 
-By default, a transcript direction requires at least 250 ms of valid evidence above the base gate, coverage of at least 30% of voiced duration, and direction concentration of at least 0.7. When evidence is missing or conflicting, transcription continues, the direction is unknown, and the pointer is hidden.
+| Position | Hardware channel | Software index | Use |
+| --- | ---: | ---: | --- |
+| MIC_1 | 1 | 0 | Localization, VAD, default ASR |
+| MIC_2 | 5 | 4 | Localization |
+| MIC_4 | 6 | 5 | Localization and VAD vote |
+| MIC_5 | 2 | 1 | Localization |
+| MIC_6 | 3 | 2 | Localization and VAD vote |
+| MIC_8 | 4 | 3 | Localization |
+| Empty | 7 | 6 | Unused |
+| Loopback | 8 | 7 | Unused |
 
-## Start
+Keep `channels` set to `8`. The six microphones are reordered into their physical ring order with:
 
-From a terminal in the Quectel PI M2 graphical desktop, enter the project directory and run:
-
-```bash
-cd /path/to/demo-sound-localization
-bash run.sh
+```json
+"mic_channels": [0, 4, 5, 1, 2, 3]
 ```
 
-Replace `/path/to` with the actual parent directory of the project on the board.
+The current geometry assumes MIC_1, MIC_2, MIC_4, MIC_5, MIC_6, and MIC_8 are clockwise at 60° intervals, with the MIC_1 radial direction defined as 0°. This software coordinate system is not necessarily the installed device's “front.” Calibrate it using a known source: use `angle_offset_deg` for global rotation and `mirror: true` if the angle direction is reversed. The current `radius_m: 0.035` is an estimate from board dimensions and should be replaced when exact microphone-center coordinates are available.
 
-The default runtime uses WebRTC VAD voting across three spaced raw microphones. At least two channels must report speech before voice is confirmed. Playback speech can also trigger VAD, and music or noise may still cause false positives. Real-time VAD now segments speech and gathers directional evidence without moving the displayed pointer frame by frame. After approximately 800 ms of trailing silence plus recognition time, a valid sentence locks the arrow to its range until the next result, transcript clear, or device reconnect. This intentional display hold is allowed during silence; the base gate applies to evidence collection. Demo and explicit `--no-asr` modes retain the previous live-arrow behaviour.
+## Setup
 
-Speech recognition uses the SenseVoice INT8 model stored locally on Quectel PI M2 and detects the language of each segment automatically. Set `asr_language` to `zh` or `en` to select a fixed language, then restart the application.
-
-The segmenter retains 300 ms of pre-roll audio, waits 800 ms for trailing silence, and limits each segment to 15 seconds. Text segmentation is independent of the display gate so quieter words are less likely to be omitted, although recognition errors remain possible.
-
-Additional commands:
-
-```bash
-bash run.sh --probe --seconds 5   # Headless live-capture diagnostics
-bash run.sh --no-vad --no-asr    # Live direction UI without optional VAD/ASR dependencies
-bash run.sh --wav recording.wav  # Replay 8-channel, 16 kHz, 16-bit PCM WAV
-bash run.sh --demo               # Clearly labeled synthetic direction demo; VAD is disabled
-bash test.sh                     # Localization, VAD, segmentation, and offline ASR tests
-```
-
-On this x86_64 desktop, `./run.sh` uses this project's environment first, then reuses local dependencies and the offline model from the adjacent `sound_loca_demo` directory when available.
-It announces if WebRTC VAD or SenseVoice is still unavailable and disables the affected feature.
-If `0bda:4cf0` is not found, check the board's USB connection and `cat /proc/asound/cards`.
-
-## Adjust the Gate
-
-Keep the environment quiet and observe the input level, then speak at a normal volume. Set the gate above most ambient sound and below normal speech. For example, if the quiet level is -45 dBFS and speech is -32 dBFS, begin around -39 to -37 dBFS.
-
-A more negative value, such as -40, is easier to trigger. A value closer to zero, such as -30, is harder to trigger. The pink marker on the level meter shows the current base gate. Click **Save** to persist it across restarts.
-
-The saved value is a **hard gate for sentence-direction evidence**. Blocks below it may still contribute to text recognition, but never to that sentence's direction estimate. The adaptive speech-band gate assists voice detection and does not replace the base gate. If an entire utterance is below the base gate, text may appear with unknown direction and no arrow.
-
-Keep the environment quiet for the first two to three seconds so the application can learn the stable noise spectrum. The noise model is updated only when speech is not detected, and stable fan or hum frequencies are downweighted during localization.
-
-Default sentence mode aggregates direction across an utterance and locks a 30° sector, avoiding frame-by-frame arrow movement from brief interference. The no-transcription live mode still uses jump confirmation and smoothing. The system does not separate simultaneous speakers; strong noise, multiple sources, and reverberation can still affect the result.
-
-The analyzed speech band is 250–4000 Hz. `speech_floor_dbfs` defaults to -58 dBFS, and `speech_snr_db` defaults to 2 dB. These values apply to the processed speech band rather than the full-band input level. Restart the application after changing them.
-
-## Configuration
-
-Advanced settings are stored in `config.json` and take effect after restart.
-
-| Key | Purpose |
-| --- | --- |
-| `device` | ALSA device; `auto` finds VA60X-GL by USB VID:PID |
-| `usb_vid_pid` | USB identity of the tested firmware, currently `0bda:4cf0` |
-| `mic_channels` | Zero-based indices for MIC_1, MIC_2, MIC_4, MIC_5, MIC_6, MIC_8 in physical order: `[0,4,5,1,2,3]` |
-| `mic_labels` | Physical positions corresponding to `mic_channels`: MIC_1, MIC_2, MIC_4, MIC_5, MIC_6, MIC_8 |
-| `radius_m` | Estimated 0.035 m microphone-ring radius; replace it when exact coordinates are available |
-| `gate_dbfs` | Hard base gate for sentence-direction evidence; quieter speech may still be transcribed |
-| `min_confidence` | Direction-consistency threshold; defaults to 0.2 and is a heuristic score, not an accuracy probability |
-| `vad_mode` | Voice-filter aggressiveness from 0 to 3; defaults to 2, with higher values being stricter |
-| `vad_channel` | Raw channel used as the starting VAD channel; defaults to CH0 |
-| `angle_offset_deg` | Global rotation applied to displayed directions |
-| `mirror` | Mirrors displayed directions |
-| `hold_seconds` | Real-time direction-tracker hold for demo or no-transcription mode; sentence mode locks the final direction instead |
-| `direction_sector_deg` | Width of the sentence pointer/transcript sector, default 30° (center ±15°) |
-
-## Software and Hardware Principles
-
-The tested VA60X-GL firmware exposes eight-channel, 16 kHz, signed 16-bit PCM through ALSA. Hardware channels 1–8 correspond to zero-based software indices 0–7: MIC_1→0, MIC_2→4, MIC_4→5, MIC_5→1, MIC_6→2, MIC_8→3. Index 6 (channel 7) is empty; index 7 (channel 8) is loopback. Neither is used for localization, but capture must still request eight channels. GCC-PHAT/SRP processes 512-sample blocks, approximately 32 ms each. The application discovers the card by USB ID `0bda:4cf0` instead of relying on an unstable ALSA card number.
-
-The six physical positions are modeled in MIC_1, MIC_2, MIC_4, MIC_5, MIC_6, MIC_8 order at 60-degree intervals. The channel mapping now follows the supplied board mapping. The algorithm assumes this physical order is clockwise and treats the MIC_1 radial direction as 0°. Verify that reference and the direction of increasing angles with a sound source at MIC_1 and an adjacent microphone. If the desired front direction differs, set `angle_offset_deg`; if angles run backward, set `mirror`. A `bash run.sh --probe --seconds 3` level summary alone cannot prove which physical MIC corresponds to each channel.
-
-WebRTC VAD analyzes continuous 20 ms frames from raw channels and carries incomplete frame data across capture blocks. Sentence direction is aggregated circularly, grouped into a sector, and drawn by Tk Canvas. The application estimates horizontal direction only; it does not estimate distance.
-
-- `app.py`: startup, capture worker, runtime coordination, and direction tracking.
-- `neon_ui.py`: cyberpunk interface, direction arrow, and gate controls.
-- `audio.py`: eight-channel capture, device timeout, and shutdown cleanup.
-- `localization.py`: localization algorithm and direction smoothing.
-- `speech.py`: offline voice detection and gating.
-- `asr.py`: utterance segmentation, offline multilingual recognition, and the background ASR queue.
-- `transcribe.py`: standalone WAV transcription and real-model validation entry point.
-- `setup_asr.py`: model download and installation entry point.
-- `env.sh` / `run.sh`: runtime environment selection and application startup.
-
-## Prepare Quectel PI M2
-
-The recorded board environment is aarch64 with Debian 13. For a first deployment, run the following commands from the project directory to install system components, create the virtual environment, install Python dependencies, prepare the SenseVoice model, and start the application:
+From a terminal in the PI M2 graphical desktop:
 
 ```bash
 sudo apt install python3 python3-venv python3-numpy python3-tk alsa-utils fonts-noto-cjk
+cd /path/to/demo-sound-localization
 python3 -m venv --system-site-packages .venv
 .venv/bin/python -m pip install -r requirements-asr.txt
 python3 setup_asr.py
 bash run.sh
 ```
 
-For device problems, run `arecord -l`. To find processes using sound devices, run `fuser /dev/snd/*`. An SSH login alone does not create a graphical desktop session, so use `--probe` for headless board diagnostics.
+`setup_asr.py` downloads the approximately 230 MB SenseVoice INT8 model from the official sherpa-onnx release URL into `models/`. The model and virtual environment are excluded from Git.
 
-## Offline Recording Validation and Recognition Parameters
+A plain SSH session normally has no graphical display. Use `--probe` first when only a terminal is available.
 
-Use the same recording repeatedly to compare recognition behavior without recapturing audio:
+## Run and Diagnose
 
 ```bash
-.venv/bin/python transcribe.py --file models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/test_wavs/zh.wav
-.venv/bin/python transcribe.py --file your_recording.wav --channel 0 --segment
+bash run.sh                         # Full GUI: localization, VAD, offline ASR
+bash run.sh --probe --seconds 5     # Headless capture diagnostics as JSON
+bash run.sh --no-vad --no-asr      # Live localization without optional dependencies
+bash run.sh --wav recording.wav    # Replay 8ch/16kHz/S16_LE PCM WAV
+bash run.sh --demo                 # Synthetic direction demo without VAD/ASR
+bash test.sh                       # Run all unit and integration tests
 ```
 
-This entry point accepts mono or multichannel, uncompressed 16-bit PCM WAV files. `--channel` selects a zero-based channel. Files longer than 30 seconds require `--segment`; segmentation supports 8, 16, 32, and 48 kHz. A mono WAV has no array geometry, so standalone file transcription does not calculate sound direction.
+`run.sh` prefers the project's `.venv`. If WebRTC VAD or SenseVoice is missing, it prints a warning and disables the affected feature instead of failing silently.
+
+Basic device checks:
+
+```bash
+cat /proc/asound/cards
+arecord -l
+bash run.sh --probe --seconds 5
+```
+
+Do not permanently configure a card number observed once, such as `hw:3,0`; it can change after a USB reconnect. With `device: auto`, the application resolves the card again from its VID:PID.
+
+## How Sentence Direction Is Produced
+
+Each 512-sample block is approximately 32 ms. The localizer evaluates all 15 microphone pairs with GCC-PHAT in the 250–4000 Hz speech band and scans 0–358° in 2° steps. A block contributes directional evidence only when all of these checks pass:
+
+1. Majority-vote VAD reports speech.
+2. Speech-band level and signal-to-noise checks pass.
+3. The six-microphone aggregate level reaches the hard `gate_dbfs` threshold.
+4. The frame direction score reaches `min_confidence`.
+
+At the end of an utterance, valid directions are combined with a circular mean weighted by duration and score. Defaults additionally require at least 0.25 seconds of valid direction, at least 30% coverage of voiced duration, and circular concentration of at least 0.7. A passing result is rounded to the nearest 30° sector: 68° becomes `60° ±15°`, while 352° becomes `0° ±15°`. The pointer and transcript use the same sector and stay locked until the next valid result, transcript clear, or device redetection.
+
+Speech below the base gate may still be transcribed, so “text present, direction unknown” is an expected outcome. See [arch.md](arch.md) for data flow, formulas, threads, and state handling.
+
+## Adjust the Gate
+
+Keep the room quiet for two to three seconds after startup so the application can learn the stable noise spectrum. Then speak at a normal level and expected distance. Place the base gate above ambient sound and below ordinary speech. If ambient sound is about -45 dBFS and speech is about -32 dBFS, start around -39 to -37 dBFS.
+
+- A more negative value such as -40 is more sensitive, but accepts more noise.
+- A value closer to zero such as -30 is stricter and produces more unknown directions.
+- The pink level-meter line is the base gate; **Save** writes it to `config.json`.
+- The adaptive speech gate helps VAD but never replaces the hard direction-evidence gate.
+
+## Why “Direction unknown” Appears Often
+
+It means the full evidence chain did not pass, rather than identifying one specific fault. Diagnose it in this order:
+
+1. Run `--probe` and verify that all six microphone channels have plausible levels. Software indices 6 and 7 must not be used as microphones.
+2. If ordinary speech often stays below `gate_dbfs: -35`, lower the gate gradually to -38 or -40 instead of making a large change.
+3. Very short words may not meet `asr_direction_min_seconds: 0.25`; compare using a complete sentence.
+4. Reverberation, simultaneous speakers, playback, or a moving source may fail `asr_direction_min_consistency: 0.7`.
+5. Too few valid frames may fail `asr_direction_min_coverage: 0.3`.
+6. If channel order, 0°, or clockwise direction is wrong, calibrate the geometry before relaxing consistency thresholds.
+
+Change one parameter at a time and keep source direction, distance, and voice level comparable.
+
+## Configuration Reference
 
 | Key | Default | Purpose |
-| --- | --- | --- |
-| `asr_language` | `auto` | Detect the language automatically; may be fixed to `zh` or `en` |
-| `asr_channel` | `0` | Audio channel used for transcription |
-| `asr_threads` | `2` | CPU threads used by the model |
-| `asr_pre_roll_seconds` | `0.3` | Audio retained before speech begins |
-| `asr_silence_seconds` | `0.8` | Trailing silence that ends an utterance |
-| `asr_min_speech_seconds` | `0.24` | Discards very short triggered segments |
-| `asr_max_seconds` | `15` | Maximum duration of each recognition segment |
-| `asr_direction_min_seconds` | `0.25` | Minimum valid direction duration above the base gate |
-| `asr_direction_min_coverage` | `0.3` | Minimum valid-direction coverage of voiced duration |
-| `asr_direction_min_consistency` | `0.7` | Minimum directional concentration within the sentence |
+| --- | ---: | --- |
+| `device` | `auto` | Find ALSA device by USB VID:PID; a temporary `hw:CARD,DEV` override is supported |
+| `ui_language` | `zh` | UI language, `zh` or `en`; independent from ASR language |
+| `usb_vid_pid` | `0bda:4cf0` | USB identity of the currently verified firmware |
+| `rate` / `channels` | `16000` / `8` | Capture sample rate and channel count |
+| `frame_size` | `512` | Per-channel samples in each localization block |
+| `mic_channels` | `[0,4,5,1,2,3]` | Software indices in physical ring order |
+| `radius_m` | `0.035` | Estimated microphone-ring radius in metres |
+| `gate_dbfs` | `-35` | Hard gate for sentence-direction evidence |
+| `min_confidence` | `0.2` | Per-block heuristic direction-score threshold, not an accuracy probability |
+| `angle_offset_deg` | `0` | Global display rotation |
+| `mirror` | `false` | Reverse the angle direction |
+| `hold_seconds` | `0.55` | Live-pointer hold used only without ASR or in demo mode |
+| `vad_mode` | `2` | WebRTC VAD aggressiveness, 0–3; higher is stricter |
+| `vad_channel` | `0` | Starting physical microphone for the three VAD selections |
+| `asr_language` | `auto` | Recognition language; may be fixed to `zh` or `en` |
+| `asr_channel` | `0` | Raw software channel used for ASR |
+| `asr_pre_roll_seconds` | `0.3` | Audio retained before speech onset |
+| `asr_silence_seconds` | `0.8` | Continuous silence that ends an utterance |
+| `asr_min_speech_seconds` | `0.24` | Minimum speech duration for an utterance |
+| `asr_max_seconds` | `15` | Maximum duration of one recognition segment |
+| `asr_direction_min_seconds` | `0.25` | Minimum valid direction duration per utterance |
+| `asr_direction_min_coverage` | `0.3` | Minimum valid-direction share of voiced duration |
+| `asr_direction_min_consistency` | `0.7` | Minimum circular concentration within an utterance |
+| `direction_sector_deg` | `30` | Pointer and transcript sector width, currently ±15° around its center |
 
-The background queue accepts at most two waiting utterances. When it is full, new segments are skipped rather than blocking capture. Normal operation does not write live recordings or transcripts to disk.
+## Troubleshooting
 
-The model and token file are stored under `models/`, and Python runtime dependencies are stored under `.venv/`. Do not treat these runtime assets as disposable cache after installation.
+### `Capture error: overrun` / `xrun: prepare error: Input/output error`
 
-Hardware basis: Quectel VA60X-GL User Manual V1.0.0 Preliminary (2026-03-06) and the tested firmware's USB descriptors.
+ALSA/USB capture was not drained in time and driver recovery then failed. Common causes include an unstable USB link, another process using the device, a stale fixed card number after reconnect, or scheduling delays under load. Stop other recording processes, reconnect the board, and use **Detect device again**. If the error remains:
+
+```bash
+fuser /dev/snd/*
+cat /proc/asound/cards
+bash run.sh --probe --seconds 5
+```
+
+### ASR Does Not Print or Display Text
+
+If startup says SenseVoice is unavailable, inspect `.venv`, `requirements-asr.txt`, and the model directory, then run:
+
+```bash
+.venv/bin/python setup_asr.py
+.venv/bin/python transcribe.py \
+  --file models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/test_wavs/zh.wav
+```
+
+The background queue can hold at most two utterances. When inference cannot keep up, a new segment is skipped so capture remains responsive. Normal operation keeps the latest 20 transcripts in memory and does not save audio or text to disk.
+
+### Standalone WAV Transcription
+
+```bash
+.venv/bin/python transcribe.py --file your.wav --channel 0 --segment
+```
+
+This accepts mono or multichannel 16-bit PCM WAV. Use `--segment` for long recordings. A mono file has no array geometry, so this command transcribes it without estimating direction.
+
+## Project Layout
+
+- `app.py`: startup, capture worker, UI state coordination, and device redetection.
+- `audio.py`: VID:PID ALSA resolution, `arecord` capture, and WAV input.
+- `localization.py`: six-microphone GCC-PHAT / SRP and live tracking.
+- `speech.py`: speech-band quality checks, noise model, and three-channel VAD voting.
+- `asr.py`: segmentation, direction aggregation, SenseVoice, and the background queue.
+- `neon_ui.py` / `i18n.py`: rendering and Chinese/English text.
+- `transcribe.py`: standalone WAV transcription validation.
+- `setup_asr.py`: offline model download and provenance record.
+- `config.json`: hardware, localization, VAD, ASR, and display settings.
+
+Hardware basis: Quectel VA60X-GL User Manual V1.0.0 Preliminary (2026-03-06) plus the tested firmware's USB/ALSA behavior.
