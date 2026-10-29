@@ -241,7 +241,10 @@ class SenseVoiceRecognizer:
                     folder = legacy
         model, tokens = folder/'model.int8.onnx', folder/'tokens.txt'
         if not model.is_file() or not tokens.is_file():
-            raise RuntimeError('Speech model missing. Run python3 setup_asr.py')
+            raise RuntimeError(
+                'Speech model missing. Download and extract it separately; '
+                'see docs/deployment.md'
+            )
         try:
             import sherpa_onnx
         except ImportError as exc:

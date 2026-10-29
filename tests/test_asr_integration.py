@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import unittest
 from sound_direction.asr import DEFAULT_MODEL
-from transcribe import transcribe_file
+from scripts.transcribe import transcribe_file
 
 
 class RealModelTests(unittest.TestCase):
