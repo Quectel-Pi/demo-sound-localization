@@ -219,3 +219,7 @@ This accepts mono or multichannel 16-bit PCM WAV. Use `--segment` for long recor
 - `config.json`: hardware, localization, VAD, ASR, and display settings.
 
 Hardware basis: Quectel VA60X-GL User Manual V1.0.0 Preliminary (2026-03-06) plus the tested firmware's USB/ALSA behavior.
+
+## Technical support
+
+If you encounter any problems during use, please submit a technical inquiry on the [Quectel official forum](https://forums.quectel.com/c/quectel-pi/80). The Quectel technical support team will respond promptly.

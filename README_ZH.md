@@ -219,3 +219,7 @@ bash run.sh --probe --seconds 5
 - `config.json`：硬件、定位、VAD、ASR 与显示参数。
 
 硬件依据：Quectel VA60X-GL 用户手册 V1.0.0 Preliminary（2026-03-06）及当前固件实测 USB/ALSA 描述。
+
+## 技术支持
+
+如在使用过程中遇到问题，欢迎在[移远官方论坛](https://forumschinese.quectel.com/c/quectel-pi/58)提交技术咨询，移远技术支持团队将及时为您解答。
