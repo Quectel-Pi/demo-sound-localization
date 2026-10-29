@@ -1,19 +1,22 @@
 import json
 import unittest
-from pathlib import Path
 import numpy as np
-from sound_localization.app import synthetic
-from sound_localization.localization import Localizer, Tracker, validate
-
-
-CONFIG = Path(__file__).resolve().parents[1]/'config'/'config.json'
+from app import synthetic
+from sound_direction.localization import Localizer, Tracker, validate
 
 
 class LocalizationTests(unittest.TestCase):
     def setUp(self):
-        with CONFIG.open() as file:
+        with open('config.json') as file:
             self.cfg = json.load(file)
         self.cfg.update(angle_offset_deg=0, mirror=False)
+
+    def test_va60x_physical_microphone_mapping(self):
+        self.assertEqual(self.cfg['mic_labels'], ['MIC_1', 'MIC_2', 'MIC_4', 'MIC_5', 'MIC_6', 'MIC_8'])
+        self.assertEqual(self.cfg['mic_channels'], [0, 4, 5, 1, 2, 3])
+        self.assertEqual(self.cfg['channels'], 8)
+        self.assertEqual(self.cfg['vad_channel'], 0)
+        self.assertEqual(self.cfg['asr_channel'], 0)
 
     def test_full_circle_fractional_delays(self):
         loc = Localizer(self.cfg)
@@ -25,16 +28,18 @@ class LocalizationTests(unittest.TestCase):
 
     def test_silence_and_uncorrelated_noise(self):
         loc = Localizer(self.cfg)
-        self.assertFalse(loc.process(np.zeros((2048, 8), dtype=np.int16))['active'])
+        shape = (self.cfg['frame_size'], self.cfg['channels'])
+        self.assertFalse(loc.process(np.zeros(shape, dtype=np.int16))['active'])
         rng = np.random.default_rng(56)
-        noise = (rng.normal(size=(2048, 8))*2000).astype(np.int16)
+        noise = (rng.normal(size=shape)*2000).astype(np.int16)
         self.assertFalse(loc.process(noise)['active'])
 
-    def test_beamformed_channel_does_not_change_direction(self):
+    def test_unused_channel_does_not_change_direction(self):
         loc = Localizer(self.cfg)
         pcm = synthetic(self.cfg, 80)
         original = loc.process(pcm)['angle']
-        pcm[:, 6] = np.random.default_rng(10).integers(-32000, 32000, 2048)
+        pcm[:, 6] = np.random.default_rng(10).integers(-32000, 32000, self.cfg['frame_size'])
+        pcm[:, 7] = np.random.default_rng(11).integers(-32000, 32000, self.cfg['frame_size'])
         self.assertEqual(original, loc.process(pcm)['angle'])
 
     def test_wrap_and_hold(self):
@@ -61,10 +66,23 @@ class LocalizationTests(unittest.TestCase):
         result = Localizer(self.cfg).process(synthetic(self.cfg, 90))
         self.assertLessEqual(abs(result['angle']-310), 4)
 
-    def test_reject_beamformed_channel(self):
-        self.cfg['mic_channels'] = [0, 1, 2, 3, 4, 6]
+    def test_reject_duplicate_microphone_channel(self):
+        self.cfg['mic_channels'] = [0, 4, 5, 1, 2, 2]
         with self.assertRaises(ValueError):
             validate(self.cfg)
+
+    def test_reject_invalid_relaxed_handoff_settings(self):
+        for key, value in (
+            ('live_direction_handoff_relaxed_consistency', 0.9),
+            ('live_direction_handoff_old_evidence_window_seconds', 0.6),
+            ('live_direction_handoff_old_evidence_max_frames', -1),
+            ('live_direction_handoff_old_evidence_max_frames', True),
+        ):
+            with self.subTest(key=key, value=value):
+                cfg = dict(self.cfg)
+                cfg[key] = value
+                with self.assertRaises(ValueError):
+                    validate(cfg)
 
     def test_below_manual_gate_still_estimates_reliable_direction(self):
         self.cfg['gate_dbfs'] = -20
@@ -79,10 +97,10 @@ class LocalizationTests(unittest.TestCase):
         u = np.array([np.sin(np.deg2rad(240)), np.cos(np.deg2rad(240))])
         delays = -loc.positions@u/343
         def hum(block):
-            t = (np.arange(self.cfg['frame_size'])+block*self.cfg['frame_size'])/48000
-            noise = np.zeros((self.cfg['frame_size'], 8))
+            t = (np.arange(self.cfg['frame_size'])+block*self.cfg['frame_size'])/self.cfg['rate']
+            noise = np.zeros((self.cfg['frame_size'], self.cfg['channels']))
             for i, delay in enumerate(delays):
-                noise[:, i] = 0.2*np.sin(2*np.pi*850*(t-delay))
+                noise[:, self.cfg['mic_channels'][i]] = 0.2*np.sin(2*np.pi*850*(t-delay))
             return (noise*32768).astype(np.int16)
         for block in range(30):
             loc.process(hum(block), learn_noise=True)

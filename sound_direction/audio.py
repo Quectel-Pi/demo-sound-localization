@@ -6,7 +6,40 @@ import tempfile
 import threading
 import time
 import wave
+from pathlib import Path
 import numpy as np
+
+
+def resolve_device(cfg, sound_root=Path('/sys/class/sound')):
+    """Resolve a USB sound card by VID:PID so ALSA card-number changes are harmless."""
+    configured = str(cfg.get('device', 'auto')).strip()
+    if configured and configured != 'auto':
+        return configured
+    identity = str(cfg.get('usb_vid_pid', '')).lower().strip()
+    if ':' not in identity:
+        raise ValueError('device=auto requires usb_vid_pid in VID:PID form')
+    wanted_vid, wanted_pid = identity.split(':', 1)
+    matches = []
+    for card in sound_root.glob('card[0-9]*'):
+        try:
+            card_number = int(card.name[4:])
+            device_path = (card / 'device').resolve()
+        except (OSError, ValueError):
+            continue
+        for parent in (device_path, *device_path.parents):
+            try:
+                vid = (parent / 'idVendor').read_text().strip().lower()
+                pid = (parent / 'idProduct').read_text().strip().lower()
+            except OSError:
+                continue
+            if (vid, pid) == (wanted_vid, wanted_pid):
+                matches.append(card_number)
+            break
+    if not matches:
+        raise RuntimeError(f'USB audio device {identity} not found; reconnect VA60X-GL and check /proc/asound/cards')
+    if len(matches) > 1:
+        raise RuntimeError(f'Multiple USB audio devices match {identity}: ALSA cards {matches}')
+    return f'hw:{matches[0]},0'
 
 
 class Capture:
@@ -14,16 +47,20 @@ class Capture:
         self.cfg = cfg
         self.process = None
         self.wav = None
+        self.device = None
         self.stopped = threading.Event()
         self.error_log = tempfile.TemporaryFile()
         if wav_path:
             self.wav = wave.open(wav_path, 'rb')
-            if (self.wav.getnchannels(), self.wav.getframerate(), self.wav.getsampwidth()) != (8, 48000, 2):
+            expected = (cfg['channels'], cfg['rate'], 2)
+            actual = (self.wav.getnchannels(), self.wav.getframerate(), self.wav.getsampwidth())
+            if actual != expected:
                 self.close()
-                raise ValueError('WAV must be 8-channel, 48000 Hz, 16-bit PCM')
+                raise ValueError(f'WAV must be {cfg["channels"]}-channel, {cfg["rate"]} Hz, 16-bit PCM')
         else:
             try:
-                self.process = subprocess.Popen(['arecord', '-q', '-D', cfg['device'], '-f',
+                self.device = resolve_device(cfg)
+                self.process = subprocess.Popen(['arecord', '-q', '-D', self.device, '-f',
                     'S16_LE', '-r', str(cfg['rate']), '-c', str(cfg['channels']), '-t', 'raw'],
                     stdout=subprocess.PIPE, stderr=self.error_log,
                     env=dict(os.environ, LC_ALL='C'))
@@ -39,7 +76,7 @@ class Capture:
                 chunk = self.wav.readframes(n)
                 if len(chunk) < size:
                     return
-                yield np.frombuffer(chunk, dtype='<i2').reshape(n, 8)
+                yield np.frombuffer(chunk, dtype='<i2').reshape(n, self.cfg['channels'])
             return
         buffer = bytearray()
         deadline = time.monotonic()+4
@@ -62,7 +99,7 @@ class Capture:
             while len(buffer) >= size:
                 chunk = bytes(buffer[:size])
                 del buffer[:size]
-                yield np.frombuffer(chunk, dtype='<i2').reshape(n, 8)
+                yield np.frombuffer(chunk, dtype='<i2').reshape(n, self.cfg['channels'])
 
     def close(self):
         self.stopped.set()

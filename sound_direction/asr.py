@@ -1,6 +1,6 @@
 """Offline sentence ASR. Capture never waits for model loading or inference."""
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import math
 import queue
@@ -9,13 +9,18 @@ import threading
 import time
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MODEL = 'models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17'
 
 
 def validate_asr(cfg):
-    if cfg.get('asr_channel', 0) not in range(8):
-        raise ValueError('asr_channel must be in 0..7')
+    if not isinstance(cfg.get('direction_unknown_log_enabled', True), bool):
+        raise ValueError('direction_unknown_log_enabled must be true or false')
+    sector = cfg.get('direction_sector_deg', 30)
+    if not isinstance(sector, int) or isinstance(sector, bool) or sector < 10 or 360 % sector or sector % 2:
+        raise ValueError('direction_sector_deg must be an even divisor of 360, at least 10 degrees')
+    if cfg.get('asr_channel', 0) not in range(cfg['channels']):
+        raise ValueError(f'asr_channel must be in 0..{cfg["channels"]-1}')
     if cfg.get('asr_threads', 2) not in range(1, 9):
         raise ValueError('asr_threads must be in 1..8')
     pre = cfg.get('asr_pre_roll_seconds', 0.3)
@@ -41,16 +46,34 @@ class Utterance:
     direction_deg: float | None = None
     direction_consistency: float = 0.0
     direction_seconds: float = 0.0
+    direction_speech_seconds: float = 0.0
+    direction_coverage: float = 0.0
+    direction_reasons: tuple[str, ...] = ()
+    direction_rejected_seconds: dict[str, float] = field(default_factory=dict)
+    direction_sector_distribution: list[dict[str, float | int]] = field(default_factory=list)
 
     def direction_info(self):
         return {'direction_deg': self.direction_deg,
                 'direction_consistency': self.direction_consistency,
-                'direction_seconds': self.direction_seconds}
+                'direction_seconds': self.direction_seconds,
+                'direction_speech_seconds': self.direction_speech_seconds,
+                'direction_coverage': self.direction_coverage,
+                'direction_reasons': self.direction_reasons,
+                'direction_rejected_seconds': dict(self.direction_rejected_seconds),
+                'direction_sector_distribution': [dict(item) for item in self.direction_sector_distribution]}
 
 
 def format_transcript(text, direction_deg):
     label = 'Direction unknown' if direction_deg is None else f'Direction {round(direction_deg) % 360:03d}°'
     return f'[{label}] {text}'
+
+
+def direction_sector(angle, width=30):
+    """Nearest fixed-width direction sector, represented by its center and half-width."""
+    if angle is None:
+        return None
+    center = int(math.floor((angle % 360 + width/2) / width) * width) % 360
+    return center, width//2
 
 
 class UtteranceSegmenter:
@@ -64,6 +87,7 @@ class UtteranceSegmenter:
         self.direction_min_samples = round(cfg.get('asr_direction_min_seconds', 0.12)*self.rate)
         self.direction_min_coverage = cfg.get('asr_direction_min_coverage', 0.2)
         self.direction_min_consistency = cfg.get('asr_direction_min_consistency', 0.6)
+        self.direction_sector_width = cfg.get('direction_sector_deg', 30)
         self.reset()
 
     def reset(self):
@@ -74,6 +98,7 @@ class UtteranceSegmenter:
         self.recording = False
         self.direction_spans = []
         self.speech_spans = []
+        self.direction_rejection_spans = []
 
     def _remember(self, samples):
         self.pre.append(samples)
@@ -91,6 +116,7 @@ class UtteranceSegmenter:
 
     def _direction_info(self, limit):
         sine = cosine = weight_sum = valid_samples = 0.0
+        sector_samples = {}
         for start, end, angle, confidence in self.direction_spans:
             length = max(0, min(end, limit)-start)
             weight = length*confidence
@@ -99,14 +125,37 @@ class UtteranceSegmenter:
             cosine += weight*math.cos(radians)
             weight_sum += weight
             valid_samples += length
+            center, _ = direction_sector(angle, self.direction_sector_width)
+            sector_samples[center] = sector_samples.get(center, 0)+length
         consistency = min(1.0, math.hypot(sine, cosine)/weight_sum) if weight_sum else 0.0
         coverage = valid_samples/max(1, self._speech_samples(limit))
-        known = (valid_samples > 0 and valid_samples >= self.direction_min_samples
-                 and coverage >= self.direction_min_coverage
-                 and consistency >= self.direction_min_consistency)
+        reasons = []
+        if valid_samples < self.direction_min_samples:
+            reasons.append('insufficient_valid_duration')
+        if coverage < self.direction_min_coverage:
+            reasons.append('insufficient_coverage')
+        if consistency < self.direction_min_consistency:
+            reasons.append('low_consistency')
+        known = valid_samples > 0 and not reasons
         angle = math.degrees(math.atan2(sine, cosine)) % 360 if known else None
+        rejected_samples = {}
+        for start, end, reason in self.direction_rejection_spans:
+            length = max(0, min(end, limit)-start)
+            rejected_samples[reason] = rejected_samples.get(reason, 0)+length
+        sector_distribution = [
+            {'center_deg': center, 'seconds': samples/self.rate,
+             'share': samples/valid_samples}
+            for center, samples in sorted(sector_samples.items(), key=lambda item: (-item[1], item[0]))
+        ] if valid_samples else []
         return {'direction_deg': angle, 'direction_consistency': consistency,
-                'direction_seconds': valid_samples/self.rate}
+                'direction_seconds': valid_samples/self.rate,
+                'direction_speech_seconds': self._speech_samples(limit)/self.rate,
+                'direction_coverage': coverage,
+                'direction_reasons': tuple(reasons),
+                'direction_rejected_seconds': {
+                    reason: samples/self.rate for reason, samples in rejected_samples.items()
+                },
+                'direction_sector_distribution': sector_distribution}
 
     def feed(self, mono, speech, direction=None):
         samples = np.array(mono, dtype=np.int16, copy=True)
@@ -123,6 +172,15 @@ class UtteranceSegmenter:
             self.recording = True
         if speech:
             self.speech_spans.append((self.total, self.total+len(samples)))
+            if direction:
+                rejections = direction.get('sentence_direction_rejections')
+                if rejections is None and not direction.get('sentence_direction_valid', direction.get('active')):
+                    rejections = ('invalid_direction',)
+                for reason in rejections or ():
+                    self.direction_rejection_spans.append((self.total, self.total+len(samples), reason))
+            else:
+                self.direction_rejection_spans.append(
+                    (self.total, self.total+len(samples), 'missing_direction_data'))
         if speech and direction and direction.get('sentence_direction_valid', direction.get('active')):
             angle = direction.get('angle')
             confidence = direction.get('confidence', 0.0)
@@ -148,6 +206,11 @@ class UtteranceSegmenter:
                                     if end > self.max_samples]
             self.speech_spans = [(max(0, start-self.max_samples), end-self.max_samples)
                                  for start, end in self.speech_spans if end > self.max_samples]
+            self.direction_rejection_spans = [
+                (max(0, start-self.max_samples), end-self.max_samples, reason)
+                for start, end, reason in self.direction_rejection_spans
+                if end > self.max_samples
+            ]
             remainder = joined[self.max_samples:]
             self.parts = [remainder] if len(remainder) else []
             self.total = len(remainder)
@@ -172,13 +235,20 @@ class SenseVoiceRecognizer:
         folder = Path(cfg.get('asr_model_dir', DEFAULT_MODEL))
         if not folder.is_absolute():
             folder = ROOT/folder
+            if not folder.is_dir():
+                legacy = ROOT.parent/'sound_loca_demo'/cfg.get('asr_model_dir', DEFAULT_MODEL)
+                if legacy.is_dir():
+                    folder = legacy
         model, tokens = folder/'model.int8.onnx', folder/'tokens.txt'
         if not model.is_file() or not tokens.is_file():
-            raise RuntimeError('Speech model missing. Run python3 tools/setup_asr.py')
+            raise RuntimeError(
+                'Speech model missing. Download and extract it separately; '
+                'see docs/deployment.md'
+            )
         try:
             import sherpa_onnx
         except ImportError as exc:
-            raise RuntimeError('Recognition dependency missing. Install requirements/asr.txt in the project virtual environment') from exc
+            raise RuntimeError('Recognition dependency missing. Install requirements-asr.txt in the project virtual environment') from exc
         self.engine = sherpa_onnx.OfflineRecognizer.from_sense_voice(
             model=str(model), tokens=str(tokens), num_threads=cfg.get('asr_threads', 2),
             language=cfg.get('asr_language', 'auto'), use_itn=True, debug=False, provider='cpu')

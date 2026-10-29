@@ -2,17 +2,13 @@ import json
 import threading
 import time
 import unittest
-from pathlib import Path
 import numpy as np
-from sound_localization.asr import AsrService, Utterance, UtteranceSegmenter, validate_asr, format_transcript
-
-
-CONFIG = Path(__file__).resolve().parents[1]/'config'/'config.json'
+from sound_direction.asr import AsrService, Utterance, UtteranceSegmenter, direction_sector, validate_asr, format_transcript
 
 
 class SegmenterTests(unittest.TestCase):
     def setUp(self):
-        with CONFIG.open() as file:
+        with open('config.json') as file:
             self.cfg = json.load(file)
         self.cfg.update(rate=1000, asr_pre_roll_seconds=0.3, asr_silence_seconds=0.8,
                         asr_min_speech_seconds=0.24, asr_max_seconds=3)
@@ -72,6 +68,19 @@ class SegmenterTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_asr(self.cfg)
 
+    def test_unknown_direction_log_switch_must_be_boolean(self):
+        self.cfg['direction_unknown_log_enabled'] = 'false'
+        with self.assertRaises(ValueError):
+            validate_asr(self.cfg)
+
+    def test_direction_sector_rounding_and_wraparound(self):
+        self.assertEqual(direction_sector(68, 30), (60, 15))
+        self.assertEqual(direction_sector(352, 30), (0, 15))
+        self.assertIsNone(direction_sector(None, 30))
+        self.cfg['direction_sector_deg'] = 17
+        with self.assertRaises(ValueError):
+            validate_asr(self.cfg)
+
     def direction(self, angle, confidence=1.0, active=True):
         return {'angle': angle, 'confidence': confidence, 'active': active}
 
@@ -95,13 +104,26 @@ class SegmenterTests(unittest.TestCase):
     def test_uncertain_if_missing_sparse_or_conflicting_directions(self):
         segmenter = UtteranceSegmenter(self.cfg)
         segmenter.feed(np.ones(300, dtype=np.int16), True)
-        self.assertIsNone(segmenter.finish()[0].direction_deg)
+        missing = segmenter.finish()[0]
+        self.assertIsNone(missing.direction_deg)
+        self.assertIn('insufficient_valid_duration', missing.direction_reasons)
+        self.assertIn('insufficient_coverage', missing.direction_reasons)
+        self.assertIn('low_consistency', missing.direction_reasons)
+        self.assertAlmostEqual(missing.direction_speech_seconds, 0.3)
+        self.assertEqual(missing.direction_rejected_seconds, {'missing_direction_data': 0.3})
         segmenter.feed(np.ones(1700, dtype=np.int16), True, self.direction(90, active=False))
         segmenter.feed(np.ones(300, dtype=np.int16), True, self.direction(60))
-        self.assertIsNone(segmenter.finish()[0].direction_deg)
+        sparse = segmenter.finish()[0]
+        self.assertIsNone(sparse.direction_deg)
+        self.assertIn('insufficient_coverage', sparse.direction_reasons)
+        self.assertAlmostEqual(sparse.direction_coverage, 0.15)
+        self.assertEqual(sparse.direction_rejected_seconds, {'invalid_direction': 1.7})
         segmenter.feed(np.ones(300, dtype=np.int16), True, self.direction(0))
         segmenter.feed(np.ones(300, dtype=np.int16), True, self.direction(180))
-        self.assertIsNone(segmenter.finish()[0].direction_deg)
+        conflicting = segmenter.finish()[0]
+        self.assertIsNone(conflicting.direction_deg)
+        self.assertIn('low_consistency', conflicting.direction_reasons)
+        self.assertAlmostEqual(conflicting.direction_coverage, 1.0)
         self.assertEqual(format_transcript('你好', None), '[Direction unknown] 你好')
 
     def test_consecutive_sentences_do_not_share_directions(self):

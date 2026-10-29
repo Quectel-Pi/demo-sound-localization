@@ -1,19 +1,17 @@
-"""Six-microphone SRP GCC-PHAT; angles clockwise from MIC0 (top).
-
-CH6 is deliberately excluded: MA-USB8 overwrites it with beamformed audio.
-"""
+"""Six-microphone SRP GCC-PHAT for a clockwise, evenly spaced ring."""
 import itertools
 import numpy as np
 
 
 def validate(cfg):
-    if cfg['rate'] != 48000 or cfg['channels'] != 8:
-        raise ValueError('MA-USB8 requires 48000 Hz / 8 channels')
+    if cfg['rate'] not in (16000, 32000, 48000) or cfg['channels'] < 6:
+        raise ValueError('Localization requires 16/32/48 kHz audio with at least 6 channels')
     indices = cfg['mic_channels']
-    if len(indices) != 6 or len(set(indices)) != 6 or any(i not in range(8) for i in indices):
-        raise ValueError('mic_channels must contain six distinct channel indices in 0..7')
-    if 6 in indices:
-        raise ValueError('CH6 is beamformed audio and cannot be used as a raw localization channel')
+    if len(indices) != 6 or len(set(indices)) != 6 or any(i not in range(cfg['channels']) for i in indices):
+        raise ValueError(f'mic_channels must contain six distinct channel indices in 0..{cfg["channels"]-1}')
+    labels = cfg.get('mic_labels')
+    if labels is not None and len(labels) != 6:
+        raise ValueError('mic_labels must contain six physical microphone labels')
     if not 0.01 <= cfg['radius_m'] <= 0.15:
         raise ValueError('radius_m must be in 0.01..0.15 meters')
     n = cfg['frame_size']
@@ -21,6 +19,33 @@ def validate(cfg):
         raise ValueError('frame_size must be a power of two in 512..8192')
     if not 0 <= cfg['min_confidence'] <= 1 or cfg['hold_seconds'] < 0:
         raise ValueError('Invalid confidence or hold duration')
+    window = cfg.get('live_direction_window_seconds', 0.25)
+    minimum = cfg.get('live_direction_min_seconds', 0.16)
+    consistency = cfg.get('live_direction_min_consistency', 0.7)
+    hold = cfg.get('live_direction_hold_seconds', 0.4)
+    speech_gap = cfg.get('live_direction_speech_gap_seconds', 0.45)
+    jump_confirm = cfg.get('live_direction_jump_confirm_seconds', 0.35)
+    live_snr = cfg.get('live_direction_min_snr_db', 3.0)
+    lock_degrees = cfg.get('live_direction_lock_degrees', 55.0)
+    handoff_window = cfg.get('live_direction_handoff_window_seconds', 0.55)
+    handoff_minimum = cfg.get('live_direction_handoff_min_seconds', 0.4)
+    handoff_consistency = cfg.get('live_direction_handoff_min_consistency', 0.85)
+    handoff_relaxed_consistency = cfg.get('live_direction_handoff_relaxed_consistency', 0.8)
+    handoff_share = cfg.get('live_direction_handoff_min_share', 0.75)
+    old_evidence_window = cfg.get('live_direction_handoff_old_evidence_window_seconds', 0.25)
+    old_evidence_max_frames = cfg.get('live_direction_handoff_old_evidence_max_frames', 1)
+    if not (0.1 <= window <= 1 and 0 < minimum <= window
+            and 0 <= consistency <= 1 and 0.1 <= hold <= 2
+            and 0 <= speech_gap <= 2 and 0.1 <= jump_confirm <= 2
+            and 0 <= live_snr <= 15 and 15 <= lock_degrees <= 180
+            and 0.2 <= handoff_window <= 2 and 0 < handoff_minimum <= handoff_window
+            and 0 <= handoff_relaxed_consistency <= handoff_consistency <= 1
+            and 0.5 <= handoff_share <= 1
+            and 0 < old_evidence_window <= handoff_window
+            and isinstance(old_evidence_max_frames, int)
+            and not isinstance(old_evidence_max_frames, bool)
+            and 0 <= old_evidence_max_frames <= 10):
+        raise ValueError('Invalid live direction window, evidence, consistency, or hold')
     if cfg.get('vad_mode', 2) not in (0, 1, 2, 3):
         raise ValueError('vad_mode must be in 0..3; higher values are stricter')
     if cfg.get('vad_channel', 0) not in indices:
@@ -49,6 +74,11 @@ class Localizer:
                               * cfg['rate'] / 343.0 for i, j in self.pairs])
         self.freq_mask = (np.fft.rfftfreq(self.fft_size, 1/cfg['rate']) >= 250)
         self.freq_mask &= np.fft.rfftfreq(self.fft_size, 1/cfg['rate']) <= 4000
+        self.noise_power = None
+        self.noise_frames = 0
+
+    def reset_noise_model(self):
+        """Forget the previous ambient-noise estimate before a manual calibration."""
         self.noise_power = None
         self.noise_frames = 0
 

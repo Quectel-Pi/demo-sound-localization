@@ -1,4 +1,4 @@
-"""Offline WebRTC VAD gating, preserving all samples across 2048-frame blocks."""
+"""Offline WebRTC VAD gating, preserving samples across arbitrary capture blocks."""
 import numpy as np
 from .localization import Localizer
 
@@ -10,7 +10,7 @@ class SpeechDetector:
             try:
                 import webrtcvad
             except ImportError as exc:
-                raise RuntimeError('WebRTC VAD missing. Install requirements/vad.txt as described in README') from exc
+                raise RuntimeError('WebRTC VAD missing. Install requirements-vad.txt as described in README') from exc
             backend = webrtcvad.Vad()
         self.backend = backend
         self.buffer = bytearray()
@@ -45,7 +45,7 @@ class SpeechDetector:
             else:
                 self.positive_run = 0
                 self.negative_run += 1
-                if self.negative_run >= 10:
+                if self.negative_run >= 8:
                     self.speech = False
         return {'speech': self.speech, 'speech_ratio': float(np.mean(decisions)) if decisions else 0.0}
 
@@ -54,6 +54,10 @@ class Pipeline:
     def __init__(self, cfg):
         self.cfg = cfg
         self.localizer = Localizer(cfg)
+        self.noise_calibration_target = max(1, round(
+            2.0*cfg['rate']/cfg['frame_size']))
+        self.noise_calibration_count = 0
+        self.noise_calibration_state = 'idle'
         self.detector = None
         if cfg.get('vad_enabled', False) or cfg.get('asr_enabled', False):
             self.detector = ArraySpeechDetector(cfg)
@@ -67,9 +71,20 @@ class Pipeline:
             voice = self.detector.process(pcm)
         else:
             self.detector = None
+        quiet_frame = voice['speech'] is False and voice['speech_ratio'] == 0
         result = self.localizer.process(pcm,
-            learn_noise=voice['speech'] is False and voice['speech_ratio'] == 0,
+            learn_noise=quiet_frame,
             suppress_noise=voice['speech'] is True)
+        if self.noise_calibration_state == 'calibrating' and quiet_frame:
+            self.noise_calibration_count += 1
+            if self.noise_calibration_count >= self.noise_calibration_target:
+                self.noise_calibration_state = 'complete'
+        result['noise_calibration'] = {
+            'state': ('paused' if self.noise_calibration_state == 'calibrating' and not quiet_frame
+                      else self.noise_calibration_state),
+            'frames': self.noise_calibration_count,
+            'target': self.noise_calibration_target,
+        }
         result.update(voice)
         floor = self.cfg.get('speech_floor_dbfs', -58.0)
         margin = self.cfg.get('speech_snr_db', 2.0)
@@ -79,14 +94,30 @@ class Pipeline:
         result['effective_gate_dbfs'] = effective_gate if enabled else self.cfg['gate_dbfs']
         audible = result['analysis_dbfs'] >= floor
         snr_ok = result['snr_db'] is None or result['snr_db'] >= 0
+        # Keep the individual rejection causes so a completed utterance can explain
+        # why its transcript has no direction. Reasons may overlap for one block.
+        direction_checks = (
+            ('vad', voice['speech'] is True),
+            ('speech_floor', audible),
+            ('snr', snr_ok),
+            ('gate_dbfs', result['dbfs'] >= self.cfg['gate_dbfs']),
+            ('confidence', result['direction_valid']),
+        )
+        result['sentence_direction_rejections'] = tuple(
+            reason for reason, passed in direction_checks if not passed)
         # Sentence metadata has its own validity and never depends on the display gate.
-        result['sentence_direction_valid'] = bool(voice['speech'] and audible and snr_ok
-                                                  and result['direction_valid'])
+        result['sentence_direction_valid'] = not result['sentence_direction_rejections']
         if enabled:
             result['active'] = bool(voice['speech'] and result['direction_valid'] and audible
                                    and result['analysis_dbfs'] >= effective_gate)
         result['vad_enabled'] = enabled
         return result
+
+    def start_noise_calibration(self):
+        """Start a two-second ambient sample; speech frames do not count."""
+        self.localizer.reset_noise_model()
+        self.noise_calibration_count = 0
+        self.noise_calibration_state = 'calibrating'
 
 
 class ArraySpeechDetector:
